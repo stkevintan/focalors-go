@@ -72,11 +72,14 @@ func main() {
 	}
 
 	yunzai := client.NewYunzai(&cfg.Yunzai)
+	defer yunzai.Stop()
 	yunzai.AddMessageHandler(func(msg client.Response) bool {
 
 		return false
 	})
 	context := context.Background()
+	defer context.Done()
+
 	yunzai.Start(context)
 
 	// Read terminal input and send it to yunzai as admin account in a loop
