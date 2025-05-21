@@ -6,13 +6,11 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type Yunzai struct {
 	ws       *WebSocketClient
-	handlers []func(msg Message) bool
+	handlers []func(msg Response) bool
 }
 
 func NewYunzai(cfg *cfg.YunzaiConfig) *Yunzai {
@@ -21,7 +19,7 @@ func NewYunzai(cfg *cfg.YunzaiConfig) *Yunzai {
 	}
 }
 
-func (y *Yunzai) AddMessageHandler(handler func(msg Message) bool) {
+func (y *Yunzai) AddMessageHandler(handler func(msg Response) bool) {
 	y.handlers = append(y.handlers, handler)
 }
 
@@ -45,7 +43,6 @@ func (y *Yunzai) Start(ctx context.Context) {
 				}
 				readyOnce.Do(func() { close(ready) })
 				logger.Info("Connected to websocket server", slog.Any("url", y.ws.Url))
-				y.sendPing()
 				// looping to listen
 				listenCtx, cancel := context.WithCancel(ctx)
 				for msg := range y.ws.Listen(listenCtx) {
@@ -70,33 +67,7 @@ func (y *Yunzai) Stop() {
 	y.ws.Stop()
 }
 
-func (y *Yunzai) Send(msg any) {
-	y.ws.Send(msg)
-}
-
-func (y *Yunzai) sendPing() {
-	msg := map[string]any{
-		"id":          uuid.NewString(),
-		"type":        "meta",
-		"time":        time.Now().UnixMilli(),
-		"detail_type": "connect",
-		"sub_type":    "",
-		"self":        y.ws.Url, // or another field if you have a self identifier
-		"version":     BotVersionConstant,
-	}
-
-	statusMsg := map[string]any{
-		"id":          uuid.NewString(),
-		"type":        "meta",
-		"time":        time.Now().UnixMilli(),
-		"sub_type":    "",
-		"detail_type": "status_update",
-		"status": map[string]any{
-			"good": true,
-			"bots": BotStatusConstant,
-		},
-	}
-	y.Send(msg)
-	y.Send(statusMsg)
-	logger.Info("Sent ping message")
+func (y *Yunzai) Send(msg Request) error {
+	logger.Info("Sending message", slog.Any("message", msg))
+	return y.ws.Send(msg)
 }

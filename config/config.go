@@ -28,6 +28,7 @@ type AppConfig struct {
 
 type YunzaiConfig struct {
 	Server string `mapstructure:"server"`
+	Admin  string `mapstructure:"admin"`
 }
 
 // LoadConfig loads the configuration from the specified file
@@ -80,7 +81,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.debug", false)
 
 	// Server defaults
-	v.SetDefault("yunzai.server", "ws://localhost:2536/ComWeChat")
+	v.SetDefault("yunzai.server", "ws://localhost:2536/GSUIDCore")
 }
 
 // createDefaultConfig creates a default configuration file if none exists

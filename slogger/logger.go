@@ -73,7 +73,7 @@ func fmtErr(err error) slog.Value {
 	return slog.GroupValue(groupValues...)
 }
 
-var h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+var h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 	ReplaceAttr: replaceAttr,
 })
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -9,8 +10,12 @@ import (
 	"focalors-go/slogger"
 	"log"
 	"log/slog"
+	"os"
 	"runtime"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Version information
@@ -67,49 +72,38 @@ func main() {
 	}
 
 	yunzai := client.NewYunzai(&cfg.Yunzai)
-	yunzai.AddMessageHandler(func(msg client.Message) bool {
-		if msg.Action == "get_version" {
-			yunzai.Send(client.BotVersionConstant)
-			return true
-		}
-
-		if msg.Action == "get_status" {
-			yunzai.Send(client.StatusUpdate{
-				Good: true,
-				Bots: client.BotStatusConstant,
-			})
-			return true
-		}
-
-		if msg.Action == "upload_file" {
-
-		}
-
-		if msg.Action == "get_self_info" {
-
-		}
-
-		if msg.Action == "get_friend_list" {
-		}
-
-		if msg.Action == "get_group_list" {
-		}
-
-		if msg.Action == "get_group_member_info" {
-
-		}
-
-		if msg.Action == "get_group_member_list" {
-		}
-
-		if msg.Action == "send_message" {
-
-		}
+	yunzai.AddMessageHandler(func(msg client.Response) bool {
 
 		return false
 	})
 	context := context.Background()
 	yunzai.Start(context)
-	// Wait forever
-	select {}
+
+	// Read terminal input and send it to yunzai as admin account in a loop
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		if !scanner.Scan() {
+			break // EOF or error
+		}
+		input := scanner.Text()
+		if input == "exit" || input == "quit" {
+			logger.Info("Exiting on user command")
+			break
+		}
+		if strings.HasPrefix(input, "#") && len(input) > 1 {
+			yunzai.Send(client.Request{
+				BotSelfId: "focalors",
+				MsgId:     uuid.New().String(),
+				UserId:    cfg.Yunzai.Admin,
+				UserPM:    0,
+				UserType:  "direct",
+				Content: []client.MessageContent{
+					{
+						Type: "text",
+						Data: input,
+					},
+				},
+			})
+		}
+	}
 }
