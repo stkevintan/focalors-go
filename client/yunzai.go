@@ -33,12 +33,11 @@ func (y *Yunzai) Start(ctx context.Context) {
 				logger.Info("Context cancelled, exiting")
 				y.ws.Close()
 				return
-			default:
+			case <-time.After(time.Duration(3) * time.Millisecond * 1000):
 				// Try to connect if not connected
 				err := y.ws.Connect()
 				if err != nil {
 					logger.Error("Failed to connect to websocket server", slog.Any("error", err))
-					time.Sleep(2 * time.Second)
 					continue
 				}
 				readyOnce.Do(func() { close(ready) })
@@ -56,7 +55,6 @@ func (y *Yunzai) Start(ctx context.Context) {
 				logger.Warn("Websocket connection lost, attempting to reconnect")
 				cancel()
 				y.ws.Close()
-				time.Sleep(2 * time.Second)
 			}
 		}
 	}()

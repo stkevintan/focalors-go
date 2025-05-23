@@ -4,7 +4,7 @@ package client
 // Request sent by the client
 type Request struct {
 	MsgId    string `json:"msg_id"`
-	UserType string `json:"user_type"` // friend
+	UserType string `json:"user_type"` // group/direct/channel/sub_channel
 	GroupId  string `json:"group_id,omitempty"`
 	// BotId     string `json:"bot_id"`
 	BotSelfId string `json:"bot_self_id,omitempty"`
