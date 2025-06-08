@@ -71,7 +71,10 @@ func LoadConfig(configPath string) (*Config, error) {
 		// If the config file wasn't found, initialize and create one
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			fmt.Println("Config file not found, creating default configuration")
-			return createDefaultConfig(v)
+			if configPath != "" {
+				return createDefaultConfig(v, filepath.Dir(configPath))
+			}
+			return createDefaultConfig(v, ".")
 		}
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
@@ -115,8 +118,7 @@ func LoadConfig(configPath string) (*Config, error) {
 // }
 
 // createDefaultConfig creates a default configuration file if none exists
-func createDefaultConfig(v *viper.Viper) (*Config, error) {
-	configDir := os.ExpandEnv("$HOME/.focalors-go")
+func createDefaultConfig(v *viper.Viper, configDir string) (*Config, error) {
 	// Create config directory if it doesn't exist
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return nil, fmt.Errorf("error creating config directory: %w", err)

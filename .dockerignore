@@ -1,3 +1,4 @@
 focalors-go
 *.png
+.vscode/
 config.toml
