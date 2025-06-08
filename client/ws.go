@@ -2,13 +2,9 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
-	"fmt"
 	"focalors-go/slogger"
 	"log/slog"
 	"net/url"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -96,25 +92,7 @@ func (c *WebSocketClient) Listen(ctx context.Context) chan Response {
 				for _, content := range message.Content {
 					logger.Info("ContentType", slog.String("Type", content.Type))
 					if content.Type == "image" {
-						// Try to display the image if content.Data is a base64 string (e.g., base64:///9j/4AAQ...)
-						if dataUrl, ok := content.Data.(string); ok && strings.HasPrefix(dataUrl, "base64://") {
-							base64Data := strings.TrimPrefix(dataUrl, "base64://")
-							imgBytes, err := base64.StdEncoding.DecodeString(base64Data)
-							if err == nil {
-								fileName := "output-" + time.Now().Format("20060102-150405") + ".png"
-								err = os.WriteFile(fileName, imgBytes, 0644)
-								if err == nil {
-									logger.Info("Image saved", slog.String("file", fileName))
-									if os.Getenv("TERM_PROGRAM") == "iTerm.app" {
-										fmt.Printf("\033]1337;File=inline=1;width=auto;height=auto;preserveAspectRatio=1:%s\a\n", base64Data)
-									}
-								} else {
-									logger.Error("Failed to write image file", slog.Any("error", err))
-								}
-							} else {
-								logger.Error("Failed to decode base64 image", slog.Any("error", err))
-							}
-						}
+						logger.Info("ContentData", slog.String("Data", content.Data.(string)[:10]))
 						continue
 					}
 					logger.Info("ContentData", slog.Any("Data", content.Data))

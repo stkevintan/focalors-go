@@ -1,38 +1,46 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"focalors-go/client"
 	"focalors-go/config"
 	"focalors-go/slogger"
+	"focalors-go/wechat"
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
-// Version information
-const (
+// Version information (can be overridden at build time)
+var (
 	ProgramName = "focalors-go"
 	Version     = "0.1.0"
+	BuildDate   = "unknown"
+	GitCommit   = "unknown"
 )
+
+var prefixRegex = regexp.MustCompile(`^[#*%]`)
 
 // BuildInfo returns the current build information
 func BuildInfo() string {
-	return time.Now().Format(time.RFC3339)
+	return fmt.Sprintf("Version: %s, Built: %s, Commit: %s", Version, BuildDate, GitCommit)
 }
 
 func printVersionInfo() {
 	fmt.Printf("%s version %s\n", ProgramName, Version)
 	fmt.Printf("Built with %s on %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("Build timestamp: %s\n", BuildInfo())
+	fmt.Printf("Build date: %s\n", BuildDate)
+	fmt.Printf("Git commit: %s\n", GitCommit)
 }
 
 var logger = slogger.New("main")
@@ -67,46 +75,109 @@ func main() {
 
 	if cfg.App.Debug {
 		logger.Info("Debug mode is enabled",
-			slog.Any("App", cfg.App),
-			slog.Any("Yunzai", cfg.Yunzai))
+			slog.Any("Config", cfg))
 	}
 
+	// yunzai
 	yunzai := client.NewYunzai(&cfg.Yunzai)
 	defer yunzai.Stop()
 	yunzai.AddMessageHandler(func(msg client.Response) bool {
 
 		return false
 	})
-	context := context.Background()
-	defer context.Done()
 
-	yunzai.Start(context)
+	// Create a cancellable context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Read terminal input and send it to yunzai as admin account in a loop
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		if !scanner.Scan() {
-			break // EOF or error
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start a goroutine to handle shutdown signals
+	go func() {
+		sig := <-sigChan
+		logger.Info("Received shutdown signal", slog.String("signal", sig.String()))
+		logger.Info("Initiating graceful shutdown...")
+		cancel() // Cancel the context to signal all components to stop
+	}()
+	// redis
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	// wc
+	wc := wechat.NewWechatClient(cfg, redisClient, ctx)
+	err = wc.InitAccount()
+	if err != nil {
+		logger.Error("Failed to init wechat account", slog.Any("error", err))
+		return
+	}
+
+	yunzai.Start(ctx)
+	yunzai.AddMessageHandler(func(msg client.Response) bool {
+		for _, content := range msg.Content {
+			if content.Type == "text" {
+				content := strings.Trim(content.Data.(string), " \n")
+				if content == "" {
+					continue
+				}
+				wc.SendTextMessage([]wechat.MessageItem{
+					{
+						ToUserName:  msg.TargetId,
+						TextContent: content,
+						MsgType:     1,
+						// TODO
+						// AtWxIDList: []string{},
+					},
+				})
+			}
+			if content.Type == "image" {
+				wc.SendImageNewMessage([]wechat.MessageItem{
+					{
+						ToUserName:   msg.TargetId,
+						ImageContent: strings.TrimPrefix(content.Data.(string), "base64://"),
+						MsgType:      2,
+					},
+				})
+			}
 		}
-		input := scanner.Text()
-		if input == "exit" || input == "quit" {
-			logger.Info("Exiting on user command")
-			break
-		}
-		if strings.HasPrefix(input, "#") && len(input) > 1 {
-			yunzai.Send(client.Request{
+		return false
+	})
+	// Define the regex pattern
+	wc.Start(ctx, func(message wechat.WechatMessage) {
+		if message.MsgType == wechat.TextMessage && prefixRegex.MatchString(message.Content) {
+			userType := "group"
+			if message.ChatType == wechat.ChatTypePrivate {
+				userType = "direct"
+			}
+			sent := client.Request{
 				BotSelfId: "focalors",
-				MsgId:     uuid.New().String(),
-				UserId:    cfg.Yunzai.Admin,
+				MsgId:     fmt.Sprintf("%d", message.MsgId),
+				UserId:    message.FromUserId,
+				GroupId:   message.FromGroupId,
 				UserPM:    0,
-				UserType:  "direct",
+				UserType:  userType,
 				Content: []client.MessageContent{
 					{
 						Type: "text",
-						Data: input,
+						Data: message.Content,
 					},
 				},
-			})
+			}
+			logger.Debug("Sending message to yunzai", slog.Any("request", sent))
+			yunzai.Send(sent)
 		}
-	}
+	})
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	logger.Info("Context cancelled, shutting down...")
+
+	// Give components time to shut down gracefully
+	time.Sleep(2 * time.Second)
+	logger.Info("Shutdown complete")
 }

@@ -16,14 +16,21 @@ var logger = slogger.New("config")
 type Config struct {
 	App    AppConfig    `mapstructure:"app"`
 	Yunzai YunzaiConfig `mapstructure:"yunzai"`
+	Wechat WechatConfig `mapstructure:"wechat"`
+	Redis  RedisConfig  `mapstructure:"redis"`
 }
 
 // AppConfig holds application-specific configuration
 type AppConfig struct {
-	RedisURL string `mapstructure:"redis"`
 	Debug    bool   `mapstructure:"debug"`
 	DataDir  string `mapstructure:"dataDir"`
 	LogLevel string `mapstructure:"logLevel"`
+}
+
+type RedisConfig struct {
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
 }
 
 type YunzaiConfig struct {
@@ -31,12 +38,18 @@ type YunzaiConfig struct {
 	Admin  string `mapstructure:"admin"`
 }
 
+type WechatConfig struct {
+	Server string `mapstructure:"server"`
+	SubURL string `mapstructure:"subURL"`
+	Token  string `mapstructure:"token"`
+}
+
 // LoadConfig loads the configuration from the specified file
 func LoadConfig(configPath string) (*Config, error) {
 	v := viper.New()
 
 	// Set default configuration values
-	setDefaults(v)
+	// setDefaults(v)
 
 	// Set configuration file settings
 	v.SetConfigType("toml")
@@ -69,20 +82,37 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("unable to decode config into struct: %w", err)
 	}
 
+	if config.Wechat.Token == "" {
+		return nil, fmt.Errorf("wechat token is required")
+	}
+
 	return &config, nil
 }
 
 // setDefaults sets default values for configuration
-func setDefaults(v *viper.Viper) {
-	// App defaults
-	v.SetDefault("app.redis", "redis://localhost:6379")
-	v.SetDefault("app.dataDir", "$HOME/.focalors-go")
-	v.SetDefault("app.logLevel", "info")
-	v.SetDefault("app.debug", false)
+// func setDefaults(v *viper.Viper) {
+// 	v.SetDefault("app", AppConfig{
+// 		Debug:    false,
+// 		DataDir:  "$HOME/.focalors-go",
+// 		LogLevel: "info",
+// 	})
 
-	// Server defaults
-	v.SetDefault("yunzai.server", "ws://localhost:2536/GSUIDCore")
-}
+// 	v.Set("redis", RedisConfig{
+// 		Addr:     "localhost:6379",
+// 		Password: "",
+// 		DB:       0,
+// 	})
+
+// 	v.Set("yunzai", YunzaiConfig{
+// 		Server: "ws://localhost:2536/GSUIDCore",
+// 		Admin:  "",
+// 	})
+
+// 	v.Set("wechat", WechatConfig{
+// 		Server: "http://localhost:1239",
+// 		SubURL: "ws://localhost:1239/ws/GetSyncMsg",
+// 	})
+// }
 
 // createDefaultConfig creates a default configuration file if none exists
 func createDefaultConfig(v *viper.Viper) (*Config, error) {
