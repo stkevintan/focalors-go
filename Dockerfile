@@ -25,11 +25,5 @@ WORKDIR /app
 # This will be the binary for the specific architecture this stage is being built for
 COPY --from=builder /app/focalors-go /app/focalors-go
 
-# Copy config.toml if it's needed at runtime
-COPY config.toml ./
-
-# Expose any port your application listens on, e.g., 8080
-# EXPOSE 8080
-
 # Set the entrypoint to run the application
 CMD ["/app/focalors-go"]
