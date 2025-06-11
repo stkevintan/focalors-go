@@ -1,3 +1,4 @@
 focalors-go
 *.png
 config.toml
+samples/

@@ -1,4 +1,4 @@
-package client
+package yunzai
 
 // https://docs.sayu-bot.com/CodeAdapter/Protocol.html#%E4%B8%8A%E6%8A%A5%E6%B6%88%E6%81%AF
 // Request sent by the client

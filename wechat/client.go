@@ -3,12 +3,12 @@ package wechat
 import (
 	"context"
 	"fmt"
+	"focalors-go/client"
 	cfg "focalors-go/config"
 	"focalors-go/slogger"
 	"log/slog"
+	"strings"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 
 	R "resty.dev/v3"
 )
@@ -16,10 +16,11 @@ import (
 var logger = slogger.New("wechat")
 
 type WechatClient struct {
-	cfg        *cfg.WechatConfig
 	ctx        context.Context
+	cfg        *cfg.WechatConfig
 	httpClient *R.Client
-	redis      *redis.Client
+	ws         *client.WebSocketClient[WechatSyncMessage]
+	handlers   []func(msg WechatMessage) bool
 }
 
 type ApiResult struct {
@@ -36,13 +37,13 @@ func prettyBody(body string) string {
 	return body
 }
 
-func NewWechatClient(cfg *cfg.Config, redis *redis.Client, ctx context.Context) *WechatClient {
+func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 	httpClient := R.New()
 	httpClient.
 		SetBaseURL(cfg.Wechat.Server).
+		SetContext(ctx).
 		SetDebug(cfg.App.Debug).
 		SetTimeout(2*time.Minute).
-		SetContext(ctx).
 		SetQueryParam("key", cfg.Wechat.Token).
 		SetDebugLogFormatter(func(dl *R.DebugLog) string {
 			req := fmt.Sprintf("\n-------------\nRequest:\nURL: %s\nHeader: %v\nBody: %s\n", dl.Request.URI, dl.Request.Header, prettyBody(dl.Request.Body))
@@ -51,14 +52,14 @@ func NewWechatClient(cfg *cfg.Config, redis *redis.Client, ctx context.Context) 
 		})
 
 	return &WechatClient{
-		cfg:        &cfg.Wechat,
 		ctx:        ctx,
+		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
-		redis:      redis,
+		ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL+"?key="+cfg.Wechat.Token),
 	}
 }
 
-func (w *WechatClient) InitAccount() error {
+func (w *WechatClient) initAccount() error {
 	loginCtx, cancel := context.WithTimeout(w.ctx, 2*time.Minute)
 	ticker := time.NewTicker(2 * time.Second)
 	loginNotify := make(chan int, 1)
@@ -109,75 +110,55 @@ func (w *WechatClient) InitAccount() error {
 	}
 }
 
-func (w *WechatClient) Start(context context.Context, onMessage func(WechatMessage)) {
-	w.InitAccount()
-	messageChannel := make(chan WechatMessage, 10)
-	defer close(messageChannel)
-	go func() {
-		for {
-			err := w.SubscribeMessage(context, messageChannel)
-			if err != nil {
-				logger.Error("Failed to subscribe to WeChat messages", slog.Any("error", err))
-				time.Sleep(5 * time.Second)
+func (w *WechatClient) AddMessageHandler(handler func(msg WechatMessage) bool) {
+	w.handlers = append(w.handlers, handler)
+}
+
+func (w *WechatClient) syncMessage() {
+	// map WechatSyncMessage to WechatMessage
+	w.ws.SetMessageHandlers(func(msg WechatSyncMessage) bool {
+		message := WechatMessage{
+			WechatMessageBase: msg.WechatMessageBase,
+			FromUserId:        msg.FromUserId.Str,
+			ToUserId:          msg.ToUserId.Str,
+			Content:           msg.Content.Str,
+		}
+
+		if strings.HasSuffix(message.FromUserId, "@chatroom") {
+			message.ChatType = ChatTypeGroup
+		} else {
+			message.ChatType = ChatTypePrivate
+		}
+
+		if message.ChatType == ChatTypeGroup {
+			groupId := message.FromUserId
+			splited := strings.SplitN(message.Content, ":\n", 2)
+			if len(splited) == 2 {
+				message.FromGroupId = groupId
+				message.FromUserId = splited[0]
+				message.Content = splited[1]
 			} else {
+				logger.Warn("Failed to split group message", slog.String("Content", message.Content))
+			}
+		}
+		for _, handler := range w.handlers {
+			if handler(message) {
 				break
 			}
 		}
-	}()
-
-	for msg := range messageChannel {
-		onMessage(msg)
-	}
+		return true
+	})
 }
 
-// 		return err
-// 	}
+func (w *WechatClient) Start() error {
+	w.initAccount()
+	w.syncMessage()
+	return w.ws.Listen()
+}
 
-// 	if token != "" {
-// 		w.token = token
-// 		return nil
-// 	}
-
-// 	token, err = w.getNewToken(tokenDays)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	w.redis.Set(w.ctx, tokenKey, token, tokenDays*24*time.Hour)
-// 	w.token = token
-// 	return nil
-// }
-
-// func (w *WechatClient) getCachedToken() (string, error) {
-// 	token, err := w.redis.Get(w.ctx, "wechat:token").Result()
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	return token, nil
-// }
-
-// func (w *WechatClient) getNewToken(days int) (string, error) {
-// 	R := w.httpClient.R()
-// 	resp, err := R.SetQueryParam("key", w.cfg.AdminKey).SetBody(map[string]any{
-// 		"Count": "1",
-// 		"Days":  days,
-// 	}).SetResult(&ApiResult{}).Post("/admin/GenAuthKey1")
-
-// 	if err != nil {
-// 		return "", err
-// 	}
-
-// 	if resp.StatusCode() != 200 {
-// 		return "", fmt.Errorf("unexpected status code: %s", resp.Status())
-// 	}
-
-// 	result := resp.Result().(*ApiResult)
-// 	if result.Code != 200 {
-// 		return "", fmt.Errorf("API error: %s (%d)", result.Text, result.Code)
-// 	}
-// 	token := result.Data.([]string)[0]
-// 	return token, nil
-// }
+func (w *WechatClient) Stop() {
+	w.ws.Close()
+}
 
 func (w *WechatClient) doGetAPICall(url string, res any) (*R.Response, error) {
 	R := w.httpClient.R()
