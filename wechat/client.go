@@ -116,7 +116,7 @@ func (w *WechatClient) AddMessageHandler(handler func(msg WechatMessage) bool) {
 
 func (w *WechatClient) syncMessage() {
 	// map WechatSyncMessage to WechatMessage
-	w.ws.SetMessageHandlers(func(msg WechatSyncMessage) bool {
+	for msg := range w.ws.Message {
 		message := WechatMessage{
 			WechatMessageBase: msg.WechatMessageBase,
 			FromUserId:        msg.FromUserId.Str,
@@ -146,13 +146,12 @@ func (w *WechatClient) syncMessage() {
 				break
 			}
 		}
-		return true
-	})
+	}
 }
 
 func (w *WechatClient) Start() error {
+	go w.syncMessage()
 	w.initAccount()
-	w.syncMessage()
 	return w.ws.Listen()
 }
 

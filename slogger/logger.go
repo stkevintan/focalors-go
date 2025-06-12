@@ -73,14 +73,20 @@ func fmtErr(err error) slog.Value {
 	return slog.GroupValue(groupValues...)
 }
 
+var programLevel = new(slog.LevelVar)
 var h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 	ReplaceAttr: replaceAttr,
+	Level:       programLevel,
 })
 
 var logger = slog.New(h)
 
 func GetRootLogger() *slog.Logger {
 	return logger
+}
+
+func SetLogLevel(level slog.Level) {
+	programLevel.Set(level)
 }
 
 func New(mod string) *slog.Logger {

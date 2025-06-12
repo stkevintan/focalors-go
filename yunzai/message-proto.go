@@ -13,7 +13,7 @@ type Request struct {
 	UserId  string           `json:"user_id"`
 	UserPM  int              `json:"user_pm"` // Permission
 	Content []MessageContent `json:"content"`
-	// Sender     map[string]any   `json:"sender"`
+	Sender  map[string]any   `json:"sender"`
 }
 
 // https://docs.sayu-bot.com/CodeAdapter/Protocol.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF

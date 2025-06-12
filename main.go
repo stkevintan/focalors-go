@@ -70,6 +70,7 @@ func main() {
 	logger.Info("Configuration loaded successfully:")
 
 	if cfg.App.Debug {
+		slogger.SetLogLevel(slog.LevelDebug)
 		logger.Info("Debug mode is enabled",
 			slog.Any("Config", cfg))
 	}
@@ -101,7 +102,7 @@ func main() {
 	w := wechat.NewWechat(ctx, cfg)
 	middlewares.NewMiddlewares(ctx, w, y, redisClient).Init()
 	select {
-	case err := <-runServiceAsync([]Service{y, w}):
+	case err := <-runServiceAsync(y, w):
 		logger.Error("Service failed", slog.Any("error", err))
 		cancel()
 	case <-ctx.Done():
@@ -115,7 +116,7 @@ type Service interface {
 	Stop()
 }
 
-func runServiceAsync(services []Service) <-chan error {
+func runServiceAsync(services ...Service) <-chan error {
 	errChan := make(chan error, len(services))
 	for _, service := range services {
 		go func(service Service) {

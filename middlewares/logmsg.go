@@ -32,6 +32,7 @@ func (m *Middlewares) AddLogMsg() {
 	m.w.AddMessageHandler(func(message wechat.WechatMessage) bool {
 		logger.Info("Received message",
 			slog.String("FromUserId", message.FromUserId),
+			slog.String("FromGroupId", message.FromGroupId),
 			slog.String("ToUserId", message.ToUserId),
 			slog.String("MsgType", fmt.Sprintf("%d", message.MsgType)),
 			slog.String("Content", message.PushContent),
