@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,18 +17,21 @@ var logger = slogger.New("client")
 
 // A websocket client
 type WebSocketClient[Message any] struct {
-	ctx      context.Context
-	Conn     *websocket.Conn
-	Url      string
-	readJSON func(Conn *websocket.Conn, v interface{}) error
-	handlers []func(msg *Message) bool
+	ctx           context.Context
+	Conn          *websocket.Conn
+	Url           string
+	readJSON      func(Conn *websocket.Conn, v interface{}) error
+	handlers      []func(msg *Message) bool
+	messageBuffer chan Message
+	wg            sync.WaitGroup
 }
 
 // New creates a new WebSocket client
 func NewClient[Message any](ctx context.Context, url string) *WebSocketClient[Message] {
 	return &WebSocketClient[Message]{
-		ctx: ctx,
-		Url: url,
+		ctx:           ctx,
+		Url:           url,
+		messageBuffer: make(chan Message, 20),
 	}
 }
 
@@ -35,6 +39,7 @@ func (c *WebSocketClient[Message]) SetReadJSON(readJSON func(Conn *websocket.Con
 	c.readJSON = readJSON
 }
 
+// thread unsafe, but we only call this before starting the client
 func (c *WebSocketClient[Message]) AddMessageHandler(handler func(msg *Message) bool) {
 	c.handlers = append(c.handlers, handler)
 }
@@ -67,6 +72,7 @@ func (c *WebSocketClient[Message]) Send(message any) error {
 }
 
 func (c *WebSocketClient[Message]) Listen() error {
+	defer close(c.messageBuffer)
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -93,10 +99,14 @@ func (c *WebSocketClient[Message]) Listen() error {
 
 			if err == nil {
 				// Step 3: Process the successfully read message.
-				for _, handler := range c.handlers {
-					if handler(&message) {
-						break
-					}
+				select {
+				case c.messageBuffer <- message:
+					// Message sent successfully
+				case <-c.ctx.Done():
+					logger.Info("[WebSocket] Context done while attempting to send message to channel.", slog.String("url", c.Url))
+					return c.ctx.Err()
+				case <-time.After(1 * time.Second): // Timeout to prevent blocking Listen indefinitely
+					logger.Warn("[WebSocket] Timeout sending message to processing channel. Channel might be full or processor stuck.", slog.String("url", c.Url))
 				}
 				continue
 			}
@@ -117,13 +127,35 @@ func (c *WebSocketClient[Message]) Close() {
 		c.Conn.Close() // Attempt to close
 		c.Conn = nil
 	}
+	c.wg.Wait() // Wait for message processing to finish
+	logger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
 }
 
 func (c *WebSocketClient[Message]) Start() error {
-	if err := c.Connect(); err != nil {
-		return err
-	}
+	c.wg.Add(1)
+	go c.processMessages()
 	return c.Listen()
+}
+
+func (c *WebSocketClient[Message]) processMessages() {
+	defer c.wg.Done()
+	for {
+		select {
+		case <-c.ctx.Done():
+			logger.Info("[WebSocket] Context done, exiting message processing loop.")
+			return
+		case message, ok := <-c.messageBuffer:
+			if !ok {
+				logger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
+				return
+			}
+			for _, handler := range c.handlers {
+				if handler(&message) {
+					break
+				}
+			}
+		}
+	}
 }
 
 func isTerminalError(err error) bool {

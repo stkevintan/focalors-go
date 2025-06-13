@@ -23,7 +23,7 @@ func (y *YunzaiClient) AddMessageHandler(handler func(msg *Response) bool) {
 }
 
 func (y *YunzaiClient) Start() error {
-	return y.ws.Listen()
+	return y.ws.Start()
 }
 
 func (y *YunzaiClient) Stop() {

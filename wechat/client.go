@@ -162,7 +162,7 @@ func convertMessage(msg *WechatSyncMessage) WechatMessage {
 
 func (w *WechatClient) Start() error {
 	w.initAccount()
-	return w.ws.Listen()
+	return w.ws.Start()
 }
 
 func (w *WechatClient) Stop() {
