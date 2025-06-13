@@ -8,7 +8,7 @@ import (
 )
 
 func (m *Middlewares) AddLogMsg() {
-	m.y.AddMessageHandler(func(message yunzai.Response) bool {
+	m.y.AddMessageHandler(func(message *yunzai.Response) bool {
 		logger.Info("Received Yunzai message",
 			slog.String("BotId", message.BotSelfId),
 			slog.String("MsgId", message.MsgId),
@@ -29,7 +29,7 @@ func (m *Middlewares) AddLogMsg() {
 		return false
 	})
 
-	m.w.AddMessageHandler(func(message wechat.WechatMessage) bool {
+	m.w.AddMessageHandler(func(message *wechat.WechatMessage) bool {
 		logger.Info("Received message",
 			slog.String("FromUserId", message.FromUserId),
 			slog.String("FromGroupId", message.FromGroupId),

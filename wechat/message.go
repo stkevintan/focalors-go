@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"fmt"
+	"strings"
 )
 
 type MessageItem struct {
@@ -91,6 +92,26 @@ func (w *WechatClient) SendAppMessage(messages []AppMessageItem) (*ApiResult, er
 	return res, nil
 }
 
+type WechatTarget interface {
+	GetReplyTarget() string
+}
+
+func (w *WechatClient) SendTextMessageTo(target WechatTarget, content ...string) (*ApiResult, error) {
+	flattenedContent := make([]MessageItem, 0, len(content))
+	for _, c := range content {
+		c = strings.Trim(c, " \n")
+		if c == "" {
+			continue
+		}
+		flattenedContent = append(flattenedContent, MessageItem{
+			ToUserName:  target.GetReplyTarget(),
+			TextContent: c,
+			MsgType:     1,
+		})
+	}
+	return w.SendTextMessage(flattenedContent)
+}
+
 type StrWrapper struct {
 	Str string `json:"str"`
 }
@@ -141,4 +162,11 @@ type WechatMessage struct {
 	FromGroupId string   `json:"from_group_id"`
 	ChatType    ChatType `json:"chat_type"`
 	Content     string   `json:"content"`
+}
+
+func (w *WechatMessage) GetReplyTarget() string {
+	if w.ChatType == ChatTypeGroup {
+		return w.FromGroupId
+	}
+	return w.FromUserId
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	R "resty.dev/v3"
 )
 
@@ -19,8 +20,7 @@ type WechatClient struct {
 	ctx        context.Context
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
-	ws         *client.WebSocketClient[WechatSyncMessage]
-	handlers   []func(msg WechatMessage) bool
+	ws         *client.WebSocketClient[WechatMessage]
 }
 
 type ApiResult struct {
@@ -51,12 +51,29 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 			return fmt.Sprintf("%s\n%s", req, res)
 		})
 
+	ws := client.NewClient[WechatMessage](ctx, cfg.Wechat.SubURL+"?key="+cfg.Wechat.Token)
+	// set custom readJSON
+	ws.SetReadJSON(readJson)
 	return &WechatClient{
 		ctx:        ctx,
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
-		ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL+"?key="+cfg.Wechat.Token),
+		ws:         ws,
 	}
+}
+func readJson(conn *websocket.Conn, v any) error {
+	target, ok := v.(*WechatMessage)
+	if !ok {
+		// This indicates a programming error in how readJson was called.
+		return fmt.Errorf("readJson: expected *WechatMessage but got %T", v)
+	}
+	msg := &WechatSyncMessage{}
+	err := conn.ReadJSON(msg)
+	if err != nil {
+		return err
+	}
+	*target = convertMessage(msg)
+	return nil
 }
 
 func (w *WechatClient) initAccount() error {
@@ -110,47 +127,40 @@ func (w *WechatClient) initAccount() error {
 	}
 }
 
-func (w *WechatClient) AddMessageHandler(handler func(msg WechatMessage) bool) {
-	w.handlers = append(w.handlers, handler)
+func (w *WechatClient) AddMessageHandler(handler func(msg *WechatMessage) bool) {
+	w.ws.AddMessageHandler(handler)
 }
 
-func (w *WechatClient) syncMessage() {
+func convertMessage(msg *WechatSyncMessage) WechatMessage {
 	// map WechatSyncMessage to WechatMessage
-	for msg := range w.ws.Message {
-		message := WechatMessage{
-			WechatMessageBase: msg.WechatMessageBase,
-			FromUserId:        msg.FromUserId.Str,
-			ToUserId:          msg.ToUserId.Str,
-			Content:           msg.Content.Str,
-		}
+	message := WechatMessage{
+		WechatMessageBase: msg.WechatMessageBase,
+		FromUserId:        msg.FromUserId.Str,
+		ToUserId:          msg.ToUserId.Str,
+		Content:           msg.Content.Str,
+	}
 
-		if strings.HasSuffix(message.FromUserId, "@chatroom") {
-			message.ChatType = ChatTypeGroup
+	if strings.HasSuffix(message.FromUserId, "@chatroom") {
+		message.ChatType = ChatTypeGroup
+	} else {
+		message.ChatType = ChatTypePrivate
+	}
+
+	if message.ChatType == ChatTypeGroup {
+		groupId := message.FromUserId
+		splited := strings.SplitN(message.Content, ":\n", 2)
+		if len(splited) == 2 {
+			message.FromGroupId = groupId
+			message.FromUserId = splited[0]
+			message.Content = splited[1]
 		} else {
-			message.ChatType = ChatTypePrivate
-		}
-
-		if message.ChatType == ChatTypeGroup {
-			groupId := message.FromUserId
-			splited := strings.SplitN(message.Content, ":\n", 2)
-			if len(splited) == 2 {
-				message.FromGroupId = groupId
-				message.FromUserId = splited[0]
-				message.Content = splited[1]
-			} else {
-				logger.Warn("Failed to split group message", slog.String("Content", message.Content))
-			}
-		}
-		for _, handler := range w.handlers {
-			if handler(message) {
-				break
-			}
+			logger.Warn("Failed to split group message", slog.String("Content", message.Content))
 		}
 	}
+	return message
 }
 
 func (w *WechatClient) Start() error {
-	go w.syncMessage()
 	w.initAccount()
 	return w.ws.Listen()
 }

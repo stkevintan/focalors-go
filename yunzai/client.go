@@ -7,9 +7,8 @@ import (
 )
 
 type YunzaiClient struct {
-	ws       *client.WebSocketClient[Response]
-	cfg      *config.Config
-	handlers []func(msg Response) bool
+	ws  *client.WebSocketClient[Response]
+	cfg *config.Config
 }
 
 func NewYunzai(ctx context.Context, cfg *config.Config) *YunzaiClient {
@@ -19,21 +18,11 @@ func NewYunzai(ctx context.Context, cfg *config.Config) *YunzaiClient {
 	}
 }
 
-func (y *YunzaiClient) AddMessageHandler(handler func(msg Response) bool) {
-	y.handlers = append(y.handlers, handler)
+func (y *YunzaiClient) AddMessageHandler(handler func(msg *Response) bool) {
+	y.ws.AddMessageHandler(handler)
 }
 
-func (y *YunzaiClient) syncMessage() {
-	for msg := range y.ws.Message {
-		for _, handler := range y.handlers {
-			if handler(msg) {
-				break
-			}
-		}
-	}
-}
 func (y *YunzaiClient) Start() error {
-	go y.syncMessage()
 	return y.ws.Listen()
 }
 

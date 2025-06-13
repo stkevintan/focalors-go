@@ -16,7 +16,7 @@ var prefixRegex = regexp.MustCompile(`^[#*%]`)
 
 func (m *Middlewares) AddBridge() {
 	// yunzai message => wechat
-	m.y.AddMessageHandler(func(msg yunzai.Response) bool {
+	m.y.AddMessageHandler(func(msg *yunzai.Response) bool {
 		for _, content := range msg.Content {
 			if content.Type == "text" {
 				content := strings.Trim(content.Data.(string), " \n")
@@ -48,7 +48,7 @@ func (m *Middlewares) AddBridge() {
 
 	// wechat message => yunzai
 	m.w.AddMessageHandler(
-		func(message wechat.WechatMessage) bool {
+		func(message *wechat.WechatMessage) bool {
 			if message.MsgType == wechat.TextMessage && prefixRegex.MatchString(message.Content) {
 				userType := "group"
 				if message.ChatType == wechat.ChatTypePrivate {
@@ -77,7 +77,7 @@ func (m *Middlewares) AddBridge() {
 		})
 }
 
-func (m *Middlewares) createSender(message wechat.WechatMessage) map[string]any {
+func (m *Middlewares) createSender(message *wechat.WechatMessage) map[string]any {
 	key := fmt.Sprintf("avatar:%s", message.FromUserId)
 	cmd := m.redis.Get(m.ctx, key)
 	err := cmd.Err()

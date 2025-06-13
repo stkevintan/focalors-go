@@ -16,28 +16,28 @@ var logger = slogger.New("client")
 
 // A websocket client
 type WebSocketClient[Message any] struct {
-	ctx     context.Context
-	Conn    *websocket.Conn
-	Url     string
-	Message chan Message
+	ctx      context.Context
+	Conn     *websocket.Conn
+	Url      string
+	readJSON func(Conn *websocket.Conn, v interface{}) error
+	handlers []func(msg *Message) bool
 }
 
 // New creates a new WebSocket client
 func NewClient[Message any](ctx context.Context, url string) *WebSocketClient[Message] {
 	return &WebSocketClient[Message]{
-		ctx:     ctx,
-		Url:     url,
-		Message: make(chan Message, 20),
+		ctx: ctx,
+		Url: url,
 	}
 }
 
-// func (c *WebSocketClient[Message]) AddMessageHandler(handler func(msg Message) bool) {
-// 	c.handlers = append(c.handlers, handler)
-// }
+func (c *WebSocketClient[Message]) SetReadJSON(readJSON func(Conn *websocket.Conn, v any) error) {
+	c.readJSON = readJSON
+}
 
-// func (c *WebSocketClient[Message]) SetMessageHandlers(handlers ...func(msg Message) bool) {
-// 	c.handlers = handlers
-// }
+func (c *WebSocketClient[Message]) AddMessageHandler(handler func(msg *Message) bool) {
+	c.handlers = append(c.handlers, handler)
+}
 
 // Connect connects to the websocket server
 func (c *WebSocketClient[Message]) Connect() error {
@@ -83,11 +83,21 @@ func (c *WebSocketClient[Message]) Listen() error {
 					continue
 				}
 			}
-			err := c.Conn.ReadJSON(&message)
+
+			var err error
+			if c.readJSON == nil {
+				err = c.Conn.ReadJSON(&message)
+			} else {
+				err = c.readJSON(c.Conn, &message)
+			}
 
 			if err == nil {
 				// Step 3: Process the successfully read message.
-				c.Message <- message
+				for _, handler := range c.handlers {
+					if handler(&message) {
+						break
+					}
+				}
 				continue
 			}
 
@@ -104,7 +114,6 @@ func (c *WebSocketClient[Message]) Listen() error {
 func (c *WebSocketClient[Message]) Close() {
 	if c.Conn != nil {
 		logger.Info("[WebSocket] Closing connection.", slog.String("url", c.Url))
-		close(c.Message)
 		c.Conn.Close() // Attempt to close
 		c.Conn = nil
 	}

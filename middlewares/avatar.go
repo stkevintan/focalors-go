@@ -3,17 +3,14 @@ package middlewares
 import (
 	"focalors-go/wechat"
 	"log/slog"
-	"slices"
+	"regexp"
 )
 
-var triggers = []string{
-	"#更新面板",
-}
+var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 
-// Cache avatar images in redis, triggered by "#更新面板" message
 func (m *Middlewares) AddAvatarCache() {
-	m.w.AddMessageHandler(func(msg wechat.WechatMessage) bool {
-		if msg.MsgType == wechat.TextMessage && slices.Contains(triggers, msg.Content) {
+	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
+		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
 			res, err := m.w.GetContactDetails([]string{
 				msg.FromUserId,
 			}, []string{})
@@ -25,6 +22,7 @@ func (m *Middlewares) AddAvatarCache() {
 				headUrl := contact.SmallHeadImgUrl
 				m.redis.Set(m.ctx, "avatar:"+contact.UserName.Str, headUrl, 0)
 			}
+			m.w.SendTextMessageTo(msg, "头像已更新")
 		}
 		return false
 	})
