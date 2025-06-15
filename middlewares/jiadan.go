@@ -16,6 +16,7 @@ import (
 
 func (m *Middlewares) AddJiadan() {
 	var triggers = regexp.MustCompile(`^#煎蛋`)
+	var jiadanAutoKey = "jiadan:auto"
 	var topN = regexp.MustCompile(`top\s*(\d+)`)
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
@@ -59,63 +60,82 @@ func (m *Middlewares) AddJiadan() {
 	jiadanContextMap := make(map[string]context.CancelFunc)
 	// mu protects concurrent access to jiadanContextMap
 	var mu sync.Mutex
+
+	var startAutoForwarding = func(target string) {
+		mu.Lock()
+		if _, ok := jiadanContextMap[target]; ok {
+			mu.Unlock()
+			return
+		}
+		ctx, cancel := context.WithCancel(m.ctx)
+		jiadanContextMap[target] = cancel
+		mu.Unlock()
+		go func(ctx context.Context, target string) {
+			// 定时任务
+			ticker := time.NewTicker(10 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					mu.Lock()
+					delete(jiadanContextMap, target)
+					mu.Unlock()
+					return
+				case <-ticker.C:
+					now := time.Now() // Get current time
+					hour := now.Hour()
+
+					// Check if current time is within the pause window (23:00 to 07:59)
+					// 23:00 (inclusive) to 08:00 (exclusive)
+					if hour >= 23 || hour < 8 {
+						continue // Skip processing during these hours
+					}
+					urls, err := m.getJiadanUpdate(getKey(target))
+					if err != nil || len(urls) == 0 {
+						logger.Debug("No jiadan update", slog.Any("error", err))
+						continue
+					}
+					if base64Images, err := m.fetchJiadan(urls); err != nil {
+						logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
+					} else if len(base64Images) > 0 {
+						m.w.SendImage(wechat.NewTarget(target), base64Images...)
+					}
+				}
+			}
+		}(ctx, target)
+	}
+
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType != wechat.TextMessage || msg.FromUserId != m.cfg.App.Admin {
 			return false
 		}
 		if strings.HasPrefix(msg.Content, "#开启煎蛋定时转发") {
-			autoKey := getAutoKey(msg.GetTarget())
-			mu.Lock()
-			if _, ok := jiadanContextMap[autoKey]; ok {
-				mu.Unlock()
-				m.w.SendText(msg, "煎蛋定时转发已经开启")
-				return true
-			}
-			ctx, cancel := context.WithCancel(m.ctx)
-			jiadanContextMap[autoKey] = cancel
-			mu.Unlock()
-			go func(ctx context.Context, target string) {
-				// 定时任务
-				ticker := time.NewTicker(1 * time.Minute)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						mu.Lock()
-						delete(jiadanContextMap, getAutoKey(target))
-						mu.Unlock()
-						return
-					case <-ticker.C:
-						urls, err := m.getJiadanUpdate(getKey(target))
-						if err != nil || len(urls) == 0 {
-							logger.Debug("No jiadan update", slog.Any("error", err))
-							continue
-						}
-						if base64Images, err := m.fetchJiadan(urls); err != nil {
-							logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-						} else if len(base64Images) > 0 {
-							m.w.SendImage(wechat.NewTarget(target), base64Images...)
-						}
-					}
-				}
-			}(ctx, msg.GetTarget())
-			m.redis.Set(m.ctx, autoKey, 1, 0)
+			key := msg.GetTarget()
+			startAutoForwarding(key)
+			m.redis.SAdd(m.ctx, jiadanAutoKey, key)
 			m.w.SendText(msg, "煎蛋定时转发已经开启")
 			return true
 		}
 		if strings.HasPrefix(msg.Content, "#关闭煎蛋定时转发") {
 			mu.Lock()
-			autoKey := getAutoKey(msg.GetTarget())
-			if jiadanCancel, ok := jiadanContextMap[autoKey]; ok {
+			key := msg.GetTarget()
+			if jiadanCancel, ok := jiadanContextMap[key]; ok {
 				jiadanCancel()
 			}
 			mu.Unlock()
-			m.redis.Del(m.ctx, autoKey)
+			m.redis.SRem(m.ctx, jiadanAutoKey, key)
 			m.w.SendText(msg, "煎蛋定时转发已经关闭")
 			return true
 		}
 		return false
 	})
+
+	// automatically start jiadan forwarding
+	if targets := m.redis.SMembers(m.ctx, jiadanAutoKey).Val(); len(targets) > 0 {
+		for _, target := range targets {
+			startAutoForwarding(target)
+		}
+	}
 }
 
 type JiadanComment struct {
@@ -137,10 +157,6 @@ type JiadanResponse struct {
 
 func getKey(id string) string {
 	return fmt.Sprintf("jiadan:%s", id)
-}
-
-func getAutoKey(id string) string {
-	return fmt.Sprintf("jiadan:auto:%s", id)
 }
 
 func useCDN(url string) string {
