@@ -78,14 +78,14 @@ func (m *Middlewares) AddJiadan() {
 }
 
 type JiadanComment struct {
-	CommentId       string   `json:"comment_ID"`
-	CommentAuthor   string   `json:"comment_author"`
-	CommentDate     string   `json:"comment_date"`
-	VotePositive    string   `json:"vote_positive"`
-	VoteNegative    string   `json:"vote_negative"`
-	TextContent     string   `json:"text_content"`
-	SubCommentCount string   `json:"sub_comment_count"`
-	Pics            []string `json:"pics"`
+	CommentId string `json:"comment_ID"`
+	// CommentAuthor string `json:"comment_author"`
+	CommentDate string `json:"comment_date"`
+	// VotePositive    string   `json:"vote_positive"`
+	// VoteNegative    string   `json:"vote_negative"`
+	// TextContent     string   `json:"text_content"`
+	// SubCommentCount string   `json:"sub_comment_count"`
+	Pics []string `json:"pics"`
 }
 
 type JiadanResponse struct {
@@ -146,7 +146,7 @@ func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, err
 			parsedTime = time.Now()
 		}
 		// set key with expired after 15 days of parsedTime
-		err = m.redis.Set(m.ctx, commentKey, 1, time.Until(parsedTime.AddDate(0, 0, 15))).Err()
+		err = m.redis.Set(m.ctx, commentKey, strings.Join(comment.Pics, ","), time.Until(parsedTime.AddDate(0, 0, 15))).Err()
 		if err != nil {
 			logger.Warn("Failed to set comment key", slog.String("key", commentKey), slog.Any("error", err))
 		}
