@@ -23,7 +23,6 @@ type Config struct {
 // AppConfig holds application-specific configuration
 type AppConfig struct {
 	Debug    bool   `mapstructure:"debug"`
-	DataDir  string `mapstructure:"dataDir"`
 	LogLevel string `mapstructure:"logLevel"`
 	Admin    string `mapstructure:"admin"`
 }
@@ -96,7 +95,6 @@ func LoadConfig(configPath string) (*Config, error) {
 // func setDefaults(v *viper.Viper) {
 // 	v.SetDefault("app", AppConfig{
 // 		Debug:    false,
-// 		DataDir:  "$HOME/.focalors-go",
 // 		LogLevel: "info",
 // 	})
 
