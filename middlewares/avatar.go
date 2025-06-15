@@ -6,9 +6,8 @@ import (
 	"regexp"
 )
 
-var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
-
 func (m *Middlewares) AddAvatarCache() {
+	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
 			res, err := m.w.GetContactDetails([]string{

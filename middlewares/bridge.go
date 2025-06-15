@@ -12,9 +12,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var prefixRegex = regexp.MustCompile(`^[#*%]`)
-
 func (m *Middlewares) AddBridge() {
+	var prefixRegex = regexp.MustCompile(`^[#*%]`)
+
 	createSender := func(message *wechat.WechatMessage) map[string]any {
 		key := fmt.Sprintf("avatar:%s", message.FromUserId)
 		if avatar, ok := m.avatarCache[key]; ok {
