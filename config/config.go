@@ -25,6 +25,7 @@ type AppConfig struct {
 	Debug    bool   `mapstructure:"debug"`
 	DataDir  string `mapstructure:"dataDir"`
 	LogLevel string `mapstructure:"logLevel"`
+	Admin    string `mapstructure:"admin"`
 }
 
 type RedisConfig struct {
@@ -35,7 +36,6 @@ type RedisConfig struct {
 
 type YunzaiConfig struct {
 	Server string `mapstructure:"server"`
-	Admin  string `mapstructure:"admin"`
 }
 
 type WechatConfig struct {

@@ -132,6 +132,18 @@ func (w *WechatClient) SendText(target WechatTarget, content ...string) (*ApiRes
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
+type SimpleWechatTarget struct {
+	target string
+}
+
+func NewTarget(target string) *SimpleWechatTarget {
+	return &SimpleWechatTarget{target: target}
+}
+
+func (w *SimpleWechatTarget) GetTarget() string {
+	return w.target
+}
+
 func (w *WechatClient) SendImage(target WechatTarget, imageBase64 ...string) (*ApiResult, error) {
 	flattenedContent := make([]ImageMessageItem, 0, len(imageBase64))
 	for _, c := range imageBase64 {

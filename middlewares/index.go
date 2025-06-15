@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"focalors-go/config"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
@@ -14,6 +15,7 @@ var logger = slogger.New("middlewares")
 
 type Middlewares struct {
 	ctx         context.Context
+	cfg         *config.Config
 	w           *wechat.WechatClient
 	y           *yunzai.YunzaiClient
 	redis       *redis.Client
@@ -21,9 +23,10 @@ type Middlewares struct {
 	client      *resty.Client
 }
 
-func NewMiddlewares(ctx context.Context, w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *redis.Client) *Middlewares {
+func NewMiddlewares(ctx context.Context, cfg *config.Config, w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *redis.Client) *Middlewares {
 	return &Middlewares{
 		ctx:         ctx,
+		cfg:         cfg,
 		w:           w,
 		y:           y,
 		redis:       redis,
