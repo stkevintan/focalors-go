@@ -57,19 +57,13 @@ func (m *Middlewares) AddJiadan() {
 		return false
 	})
 
-	jiadanContextMap := make(map[string]context.CancelFunc)
-	// mu protects concurrent access to jiadanContextMap
-	var mu sync.Mutex
+	jiadanSyncManager := NewJiadanSyncManager()
 
 	var startAutoForwarding = func(target string) {
-		mu.Lock()
-		if _, ok := jiadanContextMap[target]; ok {
-			mu.Unlock()
+		ctx, _ := jiadanSyncManager.New(target, m.ctx)
+		if ctx == nil {
 			return
 		}
-		ctx, cancel := context.WithCancel(m.ctx)
-		jiadanContextMap[target] = cancel
-		mu.Unlock()
 		go func(ctx context.Context, target string) {
 			// 定时任务
 			ticker := time.NewTicker(10 * time.Minute)
@@ -77,9 +71,6 @@ func (m *Middlewares) AddJiadan() {
 			for {
 				select {
 				case <-ctx.Done():
-					mu.Lock()
-					delete(jiadanContextMap, target)
-					mu.Unlock()
 					return
 				case <-ticker.C:
 					now := time.Now() // Get current time
@@ -117,12 +108,8 @@ func (m *Middlewares) AddJiadan() {
 			return true
 		}
 		if strings.HasPrefix(msg.Content, "#关闭煎蛋定时转发") {
-			mu.Lock()
 			key := msg.GetTarget()
-			if jiadanCancel, ok := jiadanContextMap[key]; ok {
-				jiadanCancel()
-			}
-			mu.Unlock()
+			jiadanSyncManager.Cancel(key)
 			m.redis.SRem(m.ctx, jiadanAutoKey, key)
 			m.w.SendText(msg, "煎蛋定时转发已经关闭")
 			return true
@@ -135,6 +122,38 @@ func (m *Middlewares) AddJiadan() {
 		for _, target := range targets {
 			startAutoForwarding(target)
 		}
+	}
+}
+
+type JiadanSyncManager struct {
+	mp map[string]context.CancelFunc
+	mu sync.Mutex
+}
+
+func NewJiadanSyncManager() *JiadanSyncManager {
+	return &JiadanSyncManager{
+		mp: make(map[string]context.CancelFunc),
+	}
+}
+
+func (j *JiadanSyncManager) New(target string, parentCtx context.Context) (context.Context, context.CancelFunc) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	_, exists := j.mp[target]
+	if exists {
+		return nil, nil
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
+	j.mp[target] = cancel
+	return ctx, cancel
+}
+
+func (j *JiadanSyncManager) Cancel(target string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if cancel, ok := j.mp[target]; ok {
+		cancel()
+		delete(j.mp, target)
 	}
 }
 
