@@ -12,10 +12,11 @@ import (
 var logger = slogger.New("middlewares")
 
 type Middlewares struct {
-	ctx   context.Context
-	w     *wechat.WechatClient
-	y     *yunzai.YunzaiClient
-	redis *redis.Client
+	ctx         context.Context
+	w           *wechat.WechatClient
+	y           *yunzai.YunzaiClient
+	redis       *redis.Client
+	avatarCache map[string]string
 }
 
 func NewMiddlewares(ctx context.Context, w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *redis.Client) *Middlewares {

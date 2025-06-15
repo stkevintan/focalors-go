@@ -27,6 +27,10 @@ type Response struct {
 	Content    []MessageContent `json:"content"`
 }
 
+func (r *Response) GetTarget() string {
+	return r.TargetId
+}
+
 // https://docs.sayu-bot.com/CodeAdapter/Protocol.html#%E6%B6%88%E6%81%AF%E7%B1%BB%E5%9E%8B-message
 type MessageContent struct {
 	Type string `json:"type"` // text, markdown, image, reply, at, image_size,

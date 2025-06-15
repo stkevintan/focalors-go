@@ -20,9 +20,11 @@ func (m *Middlewares) AddAvatarCache() {
 			}
 			for _, contact := range res.Data.ContactList {
 				headUrl := contact.SmallHeadImgUrl
-				m.redis.Set(m.ctx, "avatar:"+contact.UserName.Str, headUrl, 0)
+				key := "avatar:" + contact.UserName.Str
+				m.avatarCache[key] = headUrl
+				m.redis.Set(m.ctx, key, headUrl, 0)
 			}
-			m.w.SendTextMessageTo(msg, "头像已更新")
+			m.w.SendText(msg, "头像已更新")
 		}
 		return false
 	})

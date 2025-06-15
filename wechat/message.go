@@ -5,51 +5,61 @@ import (
 	"strings"
 )
 
-type MessageItem struct {
-	ToUserName   string   // 接收者 wxid
-	TextContent  string   // 文本类型消息时内容
-	ImageContent string   // 图片类型消息时图片的 base64 编码
-	MsgType      int      //1 Text 2 Image
-	AtWxIDList   []string // 发送艾特消息时的 wxid 列表
+type SendMessage interface {
+	GetUri() string
+	IsEmpty() bool
 }
 
-type SendMessageModel struct {
-	MsgItem []MessageItem // 消息体数组
-}
-
-func (w *WechatClient) SendTextMessage(messages []MessageItem) (*ApiResult, error) {
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("messages cannot be empty")
+func (w *WechatClient) SendMessage(message SendMessage) (*ApiResult, error) {
+	if message.IsEmpty() {
+		return nil, fmt.Errorf("message cannot be empty")
 	}
 	res := &ApiResult{}
-	if _, err := w.doPostAPICall("/message/SendTextMessage", SendMessageModel{MsgItem: messages}, res); err != nil {
+	if _, err := w.doPostAPICall(message.GetUri(), message, res); err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func (w *WechatClient) SendImageMessage(messages []MessageItem) (*ApiResult, error) {
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("messages cannot be empty")
-	}
-	res := &ApiResult{}
-	if _, err := w.doPostAPICall("/message/SendImageMessage", SendMessageModel{MsgItem: messages}, res); err != nil {
-		return nil, err
-	}
-	return res, nil
+// ============ Text Message ============
+type TextMessageItem struct {
+	ToUserName  string   // 接收者 wxid
+	TextContent string   // 文本类型消息时内容
+	MsgType     int      //1 Text 2 Image ...
+	AtWxIDList  []string // 发送艾特消息时的 wxid 列表
 }
 
-func (w *WechatClient) SendImageNewMessage(messages []MessageItem) (*ApiResult, error) {
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("messages cannot be empty")
-	}
-	res := &ApiResult{}
-	if _, err := w.doPostAPICall("/message/SendImageNewMessage", SendMessageModel{MsgItem: messages}, res); err != nil {
-		return nil, err
-	}
-	return res, nil
+type TextMessageModel struct {
+	MsgItem []TextMessageItem // 消息体数组
 }
 
+func (m *TextMessageModel) GetUri() string {
+	return "/message/SendTextMessage"
+}
+
+func (m *TextMessageModel) IsEmpty() bool {
+	return len(m.MsgItem) == 0
+}
+
+// ============ Image Message ============
+type ImageMessageItem struct {
+	ToUserName   string // 接收者 wxid
+	ImageContent string // 图片类型消息时图片的 base64 编码
+}
+
+type ImageMessageModel struct {
+	MsgItem []ImageMessageItem // 消息体数组
+}
+
+func (m *ImageMessageModel) GetUri() string {
+	return "/message/SendImageNewMessage"
+}
+
+func (m *ImageMessageModel) IsEmpty() bool {
+	return len(m.MsgItem) == 0
+}
+
+// ============ Emoji Message ============
 type SendEmojiItem struct {
 	ToUserName string
 	EmojiMd5   string
@@ -60,17 +70,15 @@ type SendEmojiMessageModel struct {
 	EmojiList []SendEmojiItem
 }
 
-func (w *WechatClient) SendEmojiMessage(messages []SendEmojiItem) (*ApiResult, error) {
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("messages cannot be empty")
-	}
-	res := &ApiResult{}
-	if _, err := w.doPostAPICall("/message/SendEmojiMessage", SendEmojiMessageModel{EmojiList: messages}, res); err != nil {
-		return nil, err
-	}
-	return res, nil
+func (m *SendEmojiMessageModel) GetUri() string {
+	return "/message/SendEmojiMessage"
 }
 
+func (m *SendEmojiMessageModel) IsEmpty() bool {
+	return len(m.EmojiList) == 0
+}
+
+// ============ App Message ============
 type AppMessageItem struct {
 	ToUserName  string
 	ContentXML  string
@@ -81,37 +89,66 @@ type AppMessageModel struct {
 	AppList []AppMessageItem
 }
 
-func (w *WechatClient) SendAppMessage(messages []AppMessageItem) (*ApiResult, error) {
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("messages cannot be empty")
-	}
-	res := &ApiResult{}
-	if _, err := w.doPostAPICall("/message/SendAppMessage", AppMessageModel{AppList: messages}, res); err != nil {
-		return nil, err
-	}
-	return res, nil
+func (m *AppMessageModel) GetUri() string {
+	return "/message/SendAppMessage"
 }
 
+func (m *AppMessageModel) IsEmpty() bool {
+	return len(m.AppList) == 0
+}
+
+// ====== Upload video message ======
+type VideoMessageItem struct {
+	ToUserName string
+	VideoData  []byte
+	ThumbData  string // base64
+}
+
+func (m *VideoMessageItem) GetUri() string {
+	return "/message/CdnUploadVideo"
+}
+func (m *VideoMessageItem) IsEmpty() bool {
+	return len(m.VideoData) == 0
+}
+
+// ==== Public API ====
 type WechatTarget interface {
-	GetReplyTarget() string
+	GetTarget() string
 }
 
-func (w *WechatClient) SendTextMessageTo(target WechatTarget, content ...string) (*ApiResult, error) {
-	flattenedContent := make([]MessageItem, 0, len(content))
+func (w *WechatClient) SendText(target WechatTarget, content ...string) (*ApiResult, error) {
+	flattenedContent := make([]TextMessageItem, 0, len(content))
 	for _, c := range content {
 		c = strings.Trim(c, " \n")
 		if c == "" {
 			continue
 		}
-		flattenedContent = append(flattenedContent, MessageItem{
-			ToUserName:  target.GetReplyTarget(),
+		flattenedContent = append(flattenedContent, TextMessageItem{
+			ToUserName:  target.GetTarget(),
 			TextContent: c,
 			MsgType:     1,
 		})
 	}
-	return w.SendTextMessage(flattenedContent)
+	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
+func (w *WechatClient) SendImage(target WechatTarget, imageBase64 ...string) (*ApiResult, error) {
+	flattenedContent := make([]ImageMessageItem, 0, len(imageBase64))
+	for _, c := range imageBase64 {
+		c = strings.TrimPrefix(c, "base64://")
+		c = strings.Trim(c, " \n")
+		if c == "" {
+			continue
+		}
+		flattenedContent = append(flattenedContent, ImageMessageItem{
+			ToUserName:   target.GetTarget(),
+			ImageContent: c,
+		})
+	}
+	return w.SendMessage(&ImageMessageModel{MsgItem: flattenedContent})
+}
+
+// ==== Received Message =======
 type StrWrapper struct {
 	Str string `json:"str"`
 }
@@ -164,7 +201,7 @@ type WechatMessage struct {
 	Content     string   `json:"content"`
 }
 
-func (w *WechatMessage) GetReplyTarget() string {
+func (w *WechatMessage) GetTarget() string {
 	if w.ChatType == ChatTypeGroup {
 		return w.FromGroupId
 	}
