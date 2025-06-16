@@ -6,6 +6,7 @@ import (
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"resty.dev/v3"
@@ -30,7 +31,7 @@ func NewMiddlewares(ctx context.Context, cfg *config.Config, w *wechat.WechatCli
 		w:           w,
 		y:           y,
 		redis:       redis,
-		client:      resty.New(),
+		client:      resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
 		avatarCache: map[string]string{},
 	}
 }

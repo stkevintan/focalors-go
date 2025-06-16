@@ -18,6 +18,7 @@ type Config struct {
 	Yunzai YunzaiConfig `mapstructure:"yunzai"`
 	Wechat WechatConfig `mapstructure:"wechat"`
 	Redis  RedisConfig  `mapstructure:"redis"`
+	Jiadan JiadanConfig `mapstructure:"jiadan"`
 }
 
 // AppConfig holds application-specific configuration
@@ -43,12 +44,17 @@ type WechatConfig struct {
 	Token  string `mapstructure:"token"`
 }
 
+type JiadanConfig struct {
+	SyncCron     string `mapstructure:"syncCron"`
+	MaxSyncCount int    `mapstructure:"maxSyncCount"`
+}
+
 // LoadConfig loads the configuration from the specified file
 func LoadConfig(configPath string) (*Config, error) {
 	v := viper.New()
 
 	// Set default configuration values
-	// setDefaults(v)
+	setDefaults(v)
 
 	// Set configuration file settings
 	v.SetConfigType("toml")
@@ -92,28 +98,29 @@ func LoadConfig(configPath string) (*Config, error) {
 }
 
 // setDefaults sets default values for configuration
-// func setDefaults(v *viper.Viper) {
-// 	v.SetDefault("app", AppConfig{
-// 		Debug:    false,
-// 		LogLevel: "info",
-// 	})
+func setDefaults(v *viper.Viper) {
+	// App defaults
+	v.SetDefault("app.debug", false)
+	v.SetDefault("app.logLevel", "info")
+	v.SetDefault("app.admin", "")
 
-// 	v.Set("redis", RedisConfig{
-// 		Addr:     "localhost:6379",
-// 		Password: "",
-// 		DB:       0,
-// 	})
+	// Redis defaults
+	v.SetDefault("redis.addr", "localhost:6379")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
 
-// 	v.Set("yunzai", YunzaiConfig{
-// 		Server: "ws://localhost:2536/GSUIDCore",
-// 		Admin:  "",
-// 	})
+	// Yunzai defaults
+	v.SetDefault("yunzai.server", "ws://localhost:2536/GSUIDCore")
 
-// 	v.Set("wechat", WechatConfig{
-// 		Server: "http://localhost:1239",
-// 		SubURL: "ws://localhost:1239/ws/GetSyncMsg",
-// 	})
-// }
+	// Wechat defaults
+	v.SetDefault("wechat.server", "http://localhost:1239")
+	v.SetDefault("wechat.subURL", "ws://localhost:1239/ws/GetSyncMsg")
+	v.SetDefault("wechat.token", "")
+
+	// Jiadan defaults
+	v.SetDefault("jiadan.syncCron", "*/30 8-23 * * *")
+	v.SetDefault("jiadan.maxSyncCount", 4)
+}
 
 // createDefaultConfig creates a default configuration file if none exists
 func createDefaultConfig(v *viper.Viper, configDir string) (*Config, error) {

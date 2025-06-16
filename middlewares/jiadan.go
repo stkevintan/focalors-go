@@ -1,7 +1,6 @@
 package middlewares
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"focalors-go/wechat"
@@ -12,11 +11,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 func (m *Middlewares) AddJiadan() {
 	var triggers = regexp.MustCompile(`^#煎蛋`)
-	var jiadanAutoKey = "jiadan:auto"
+	var JiaDanSyncKey = "jiadan:auto"
 	var topN = regexp.MustCompile(`top\s*(\d+)`)
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
@@ -59,41 +60,34 @@ func (m *Middlewares) AddJiadan() {
 
 	jiadanSyncManager := NewJiadanSyncManager()
 
-	var startAutoForwarding = func(target string) {
-		ctx, _ := jiadanSyncManager.New(target, m.ctx)
-		if ctx == nil {
+	startSync := func(target string) {
+		c, err := jiadanSyncManager.New(target, m.cfg.Jiadan.SyncCron)
+		if err != nil {
+			logger.Error("Failed to create cron job", slog.String("target", target), slog.Any("error", err))
 			return
 		}
-		go func(ctx context.Context, target string) {
-			// 定时任务
-			ticker := time.NewTicker(10 * time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					now := time.Now() // Get current time
-					hour := now.Hour()
 
-					// Check if current time is within the pause window (23:00 to 07:59)
-					// 23:00 (inclusive) to 08:00 (exclusive)
-					if hour >= 23 || hour < 8 {
-						continue // Skip processing during these hours
-					}
-					urls, err := m.getJiadanUpdate(getKey(target))
-					if err != nil || len(urls) == 0 {
-						logger.Debug("No jiadan update", slog.Any("error", err))
-						continue
-					}
-					if base64Images, err := m.fetchJiadan(urls); err != nil {
-						logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-					} else if len(base64Images) > 0 {
-						m.w.SendImage(wechat.NewTarget(target), base64Images...)
-					}
-				}
+		_, err = c.AddFunc(m.cfg.Jiadan.SyncCron, func() {
+			urls, err := m.getJiadanUpdate(getKey(target))
+			if err != nil || len(urls) == 0 {
+				logger.Debug("No jiadan update", slog.Any("error", err))
+				return
 			}
-		}(ctx, target)
+			if base64Images, err := m.fetchJiadan(urls); err != nil {
+				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
+			} else if len(base64Images) > 0 {
+				m.w.SendImage(wechat.NewTarget(target), base64Images...)
+			}
+		})
+
+		if err != nil {
+			logger.Error("Failed to add cron job", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
+			jiadanSyncManager.Cancel(target)
+			return
+		}
+
+		c.Start()
+		logger.Info("Started jiadan auto forwarding", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron))
 	}
 
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
@@ -102,15 +96,15 @@ func (m *Middlewares) AddJiadan() {
 		}
 		if strings.HasPrefix(msg.Content, "#开启煎蛋定时转发") {
 			key := msg.GetTarget()
-			startAutoForwarding(key)
-			m.redis.SAdd(m.ctx, jiadanAutoKey, key)
+			startSync(key)
+			m.redis.SAdd(m.ctx, JiaDanSyncKey, key)
 			m.w.SendText(msg, "煎蛋定时转发已经开启")
 			return true
 		}
 		if strings.HasPrefix(msg.Content, "#关闭煎蛋定时转发") {
 			key := msg.GetTarget()
 			jiadanSyncManager.Cancel(key)
-			m.redis.SRem(m.ctx, jiadanAutoKey, key)
+			m.redis.SRem(m.ctx, JiaDanSyncKey, key)
 			m.w.SendText(msg, "煎蛋定时转发已经关闭")
 			return true
 		}
@@ -118,41 +112,42 @@ func (m *Middlewares) AddJiadan() {
 	})
 
 	// automatically start jiadan forwarding
-	if targets := m.redis.SMembers(m.ctx, jiadanAutoKey).Val(); len(targets) > 0 {
+	if targets := m.redis.SMembers(m.ctx, JiaDanSyncKey).Val(); len(targets) > 0 {
 		for _, target := range targets {
-			startAutoForwarding(target)
+			startSync(target)
 		}
 	}
 }
 
 type JiadanSyncManager struct {
-	mp map[string]context.CancelFunc
+	mp map[string]*cron.Cron
 	mu sync.Mutex
 }
 
 func NewJiadanSyncManager() *JiadanSyncManager {
 	return &JiadanSyncManager{
-		mp: make(map[string]context.CancelFunc),
+		mp: make(map[string]*cron.Cron),
 	}
 }
 
-func (j *JiadanSyncManager) New(target string, parentCtx context.Context) (context.Context, context.CancelFunc) {
+func (j *JiadanSyncManager) New(target string, cronExpr string) (*cron.Cron, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	_, exists := j.mp[target]
 	if exists {
-		return nil, nil
+		return nil, fmt.Errorf("cron job already exists for target: %s", target)
 	}
-	ctx, cancel := context.WithCancel(parentCtx)
-	j.mp[target] = cancel
-	return ctx, cancel
+
+	c := cron.New()
+	j.mp[target] = c
+	return c, nil
 }
 
 func (j *JiadanSyncManager) Cancel(target string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if cancel, ok := j.mp[target]; ok {
-		cancel()
+	if c, ok := j.mp[target]; ok {
+		c.Stop()
 		delete(j.mp, target)
 	}
 }
@@ -214,7 +209,10 @@ func (m *Middlewares) getJiadanUpdate(key string) ([]string, error) {
 			urls = append(urls, url)
 		}
 		m.saveVisited(commentKey, comment)
-		break
+		// break if we have too many pics
+		if len(urls) >= m.cfg.Jiadan.MaxSyncCount {
+			break
+		}
 	}
 	return urls, nil
 }

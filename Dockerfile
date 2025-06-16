@@ -19,6 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o f
 # Use a minimal base image
 FROM alpine:latest
 
+# Install timezone data
+RUN apk --no-cache add tzdata
+
 WORKDIR /app
 
 # Copy the built binary from the builder stage
