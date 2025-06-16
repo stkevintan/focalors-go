@@ -86,7 +86,10 @@ func (m *Middlewares) AddJiadan() {
 			return
 		}
 
-		c.Start()
+		if err = jiadanSyncManager.StartSafely(target, c); err != nil {
+			logger.Error("Failed to start cron job", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
+			return
+		}
 		logger.Info("Started jiadan auto forwarding", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron))
 	}
 
@@ -121,7 +124,7 @@ func (m *Middlewares) AddJiadan() {
 
 type JiadanSyncManager struct {
 	mp map[string]*cron.Cron
-	mu sync.Mutex
+	mu sync.RWMutex
 }
 
 func NewJiadanSyncManager() *JiadanSyncManager {
@@ -141,6 +144,19 @@ func (j *JiadanSyncManager) New(target string, cronExpr string) (*cron.Cron, err
 	c := cron.New()
 	j.mp[target] = c
 	return c, nil
+}
+
+func (j *JiadanSyncManager) StartSafely(target string, c *cron.Cron) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	// Double-check the cron still exists and hasn't been cancelled
+	if storedCron, exists := j.mp[target]; !exists || storedCron != c {
+		return fmt.Errorf("cron job was cancelled or replaced for target: %s", target)
+	}
+
+	c.Start()
+	return nil
 }
 
 func (j *JiadanSyncManager) Cancel(target string) {
