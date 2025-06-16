@@ -1,8 +1,10 @@
 package middlewares
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"focalors-go/config"
 	"focalors-go/wechat"
 	"log/slog"
 	"path"
@@ -12,13 +14,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
+	"resty.dev/v3"
 )
 
 func (m *Middlewares) AddJiadan() {
 	var JiaDanSyncKey = "jiadan:auto"
+
 	var triggers = regexp.MustCompile(`^#煎蛋`)
 	var topN = regexp.MustCompile(`top\s*(\d+)`)
+	jiadanSyncManager := NewJiadanSyncManager(m.ctx, m.redis, func(target string, urls []string) {
+		m.w.SendImage(wechat.NewTarget(target), urls...)
+	})
+
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
 			top := 1
@@ -34,7 +43,7 @@ func (m *Middlewares) AddJiadan() {
 					top = parsedTop
 				}
 			}
-			urls, err := m.getJiadanTop(getKey(msg.GetTarget()), top, 0)
+			urls, err := jiadanSyncManager.getJiadanTop(getKey(msg.GetTarget()), top, 0)
 			if err != nil {
 				logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
 				m.w.SendText(msg, "获取煎蛋失败")
@@ -45,7 +54,7 @@ func (m *Middlewares) AddJiadan() {
 				return true
 			}
 
-			if base64Images, err := m.fetchJiadan(urls); err != nil {
+			if base64Images, err := jiadanSyncManager.fetchJiadan(urls); err != nil {
 				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
 				m.w.SendText(msg, "煎蛋无聊图下载失败")
 			} else if len(base64Images) > 0 {
@@ -58,15 +67,13 @@ func (m *Middlewares) AddJiadan() {
 		return false
 	})
 
-	jiadanSyncManager := NewJiadanSyncManager()
-
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType != wechat.TextMessage || msg.FromUserId != m.cfg.App.Admin {
 			return false
 		}
 		if strings.HasPrefix(msg.Content, "#开启煎蛋定时转发") {
 			target := msg.GetTarget()
-			if err := jiadanSyncManager.AddCron(m, target); err != nil {
+			if err := jiadanSyncManager.AddCron(target, &m.cfg.Jiadan); err != nil {
 				logger.Error("Failed to add cron job", slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
 				return true
 			}
@@ -87,7 +94,7 @@ func (m *Middlewares) AddJiadan() {
 	// automatically start jiadan forwarding
 	if targets := m.redis.SMembers(m.ctx, JiaDanSyncKey).Val(); len(targets) > 0 {
 		for _, target := range targets {
-			if err := jiadanSyncManager.AddCron(m, target); err != nil {
+			if err := jiadanSyncManager.AddCron(target, &m.cfg.Jiadan); err != nil {
 				logger.Error("Failed to add cron job", slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
 			} else {
 				logger.Info("Jiadan auto sync enabled", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron))
@@ -99,16 +106,24 @@ func (m *Middlewares) AddJiadan() {
 }
 
 type JiadanSyncManager struct {
-	mp   map[string]cron.EntryID
-	mu   sync.RWMutex
-	cron *cron.Cron
+	mp       map[string]cron.EntryID
+	mu       sync.Mutex
+	cron     *cron.Cron
+	client   *resty.Client
+	ctx      context.Context
+	redis    *redis.Client
+	onImages func(string, []string)
 }
 
-func NewJiadanSyncManager() *JiadanSyncManager {
+func NewJiadanSyncManager(ctx context.Context, redis *redis.Client, onImages func(string, []string)) *JiadanSyncManager {
 	return &JiadanSyncManager{
-		mp:   make(map[string]cron.EntryID),
-		mu:   sync.RWMutex{},
-		cron: cron.New(),
+		mp:       make(map[string]cron.EntryID),
+		mu:       sync.Mutex{},
+		cron:     cron.New(),
+		client:   resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
+		ctx:      ctx,
+		redis:    redis,
+		onImages: onImages,
 	}
 }
 
@@ -116,37 +131,29 @@ func (j *JiadanSyncManager) Start() {
 	j.cron.Start()
 }
 
-func (j *JiadanSyncManager) Exists(target string) bool {
-	j.mu.RLock()
-	defer j.mu.RUnlock()
-	_, exists := j.mp[target]
-	return exists
-}
-
-func (j *JiadanSyncManager) AddCron(m *Middlewares, target string) error {
-	if j.Exists(target) {
+func (j *JiadanSyncManager) AddCron(target string, cfg *config.JiadanConfig) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if _, exists := j.mp[target]; exists {
 		logger.Warn("Jiadan cron job already exists", slog.String("target", target))
 		return nil
 	}
-
-	id, err := j.cron.AddFunc(m.cfg.Jiadan.SyncCron, func() {
-		urls, err := m.getJiadanUpdate(getKey(target))
+	id, err := j.cron.AddFunc(cfg.SyncCron, func() {
+		urls, err := j.getJiadanUpdate(getKey(target), cfg.MaxSyncCount)
 		if err != nil || len(urls) == 0 {
 			logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
 			return
 		}
-		if base64Images, err := m.fetchJiadan(urls); err != nil {
+		if base64Images, err := j.fetchJiadan(urls); err != nil {
 			logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
 		} else if len(base64Images) > 0 {
-			m.w.SendImage(wechat.NewTarget(target), base64Images...)
+			j.onImages(target, base64Images)
 		}
 	})
 	if err != nil {
 		return fmt.Errorf("failed to add cron job: %w", err)
 	}
-	j.mu.Lock()
 	j.mp[target] = id
-	j.mu.Unlock()
 	return nil
 }
 
@@ -188,11 +195,11 @@ func useCDN(url string) string {
 	return fmt.Sprintf("https://img.toto.im/large/%s", file)
 }
 
-func (m *Middlewares) getJiadanUpdate(key string) ([]string, error) {
+func (j *JiadanSyncManager) getJiadanUpdate(key string, maxSyncCount int) ([]string, error) {
 	commentUrl := "https://i.jandan.net/?oxwlxojflwblxbsapi=jandan.get_pic_comments"
 	jiadan := &JiadanResponse{}
 	urls := []string{}
-	resp, err := m.client.R().SetResult(jiadan).Get(commentUrl)
+	resp, err := j.client.R().SetResult(jiadan).Get(commentUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +213,7 @@ func (m *Middlewares) getJiadanUpdate(key string) ([]string, error) {
 			continue
 		}
 		commentKey := fmt.Sprintf("%s%s", key, comment.CommentId)
-		if m.redis.Exists(m.ctx, commentKey).Val() == 1 {
+		if j.redis.Exists(j.ctx, commentKey).Val() == 1 {
 			logger.Debug("Comment already visited", slog.String("id", comment.CommentId))
 			return nil, fmt.Errorf("comment already visited: %s", comment.CommentId)
 		}
@@ -218,26 +225,26 @@ func (m *Middlewares) getJiadanUpdate(key string) ([]string, error) {
 			url := useCDN(pic)
 			urls = append(urls, url)
 		}
-		m.saveVisited(commentKey, comment)
+		j.saveVisited(commentKey, comment)
 		// break if we have too many pics
-		if len(urls) >= m.cfg.Jiadan.MaxSyncCount {
+		if len(urls) >= maxSyncCount {
 			break
 		}
 	}
 	return urls, nil
 }
 
-func (m *Middlewares) saveVisited(commentKey string, comment JiadanComment) {
+func (j *JiadanSyncManager) saveVisited(commentKey string, comment JiadanComment) {
 	parsedTime, err := time.Parse("2006-01-02 15:04:05", comment.CommentDate)
 	if err != nil {
 		logger.Warn("Failed to parse time", slog.String("time", comment.CommentDate), slog.Any("error", err))
 		parsedTime = time.Now()
 	}
 	// set key with expired after 15 days of parsedTime
-	m.redis.Set(m.ctx, commentKey, strings.Join(comment.Pics, ","), time.Until(parsedTime.AddDate(0, 0, 15)))
+	j.redis.Set(j.ctx, commentKey, strings.Join(comment.Pics, ","), time.Until(parsedTime.AddDate(0, 0, 15)))
 }
 
-func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, error) {
+func (j *JiadanSyncManager) getJiadanTop(key string, top int, page int) ([]string, error) {
 	commentUrl := "https://i.jandan.net/?oxwlxojflwblxbsapi=jandan.get_pic_comments"
 	if page > 0 {
 		commentUrl = fmt.Sprintf("%s&page=%d", commentUrl, page)
@@ -246,7 +253,7 @@ func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, err
 	cnt := 0
 	jiadan := &JiadanResponse{}
 	urls := []string{}
-	resp, err := m.client.R().SetResult(jiadan).Get(commentUrl)
+	resp, err := j.client.R().SetResult(jiadan).Get(commentUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +267,7 @@ func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, err
 			continue
 		}
 		commentKey := fmt.Sprintf("%s%s", key, comment.CommentId)
-		if m.redis.Exists(m.ctx, commentKey).Val() == 1 {
+		if j.redis.Exists(j.ctx, commentKey).Val() == 1 {
 			logger.Debug("Comment already visited", slog.String("id", comment.CommentId))
 			continue
 		}
@@ -278,13 +285,13 @@ func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, err
 		if hasImage {
 			cnt++
 		}
-		m.saveVisited(commentKey, comment)
+		j.saveVisited(commentKey, comment)
 		if cnt >= top {
 			break
 		}
 	}
 	if cnt < top && jiadan.CurrentPage < jiadan.PageCount {
-		nextUrls, err := m.getJiadanTop(key, top-cnt, jiadan.CurrentPage+1)
+		nextUrls, err := j.getJiadanTop(key, top-cnt, jiadan.CurrentPage+1)
 		if err != nil {
 			return urls, err
 		}
@@ -293,11 +300,11 @@ func (m *Middlewares) getJiadanTop(key string, top int, page int) ([]string, err
 	return urls, nil
 }
 
-func (m *Middlewares) fetchJiadan(urls []string) ([]string, error) {
+func (j *JiadanSyncManager) fetchJiadan(urls []string) ([]string, error) {
 	base64Images := []string{}
 	for _, url := range urls {
 		logger.Debug("Downloading image", slog.String("url", url))
-		resp, err := m.client.R().Get(url)
+		resp, err := j.client.R().Get(url)
 		if err != nil {
 			logger.Error("Failed to download image", slog.String("url", url), slog.Any("error", err))
 			continue
