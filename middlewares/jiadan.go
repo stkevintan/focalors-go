@@ -16,8 +16,8 @@ import (
 )
 
 func (m *Middlewares) AddJiadan() {
-	var triggers = regexp.MustCompile(`^#煎蛋`)
 	var JiaDanSyncKey = "jiadan:auto"
+	var triggers = regexp.MustCompile(`^#煎蛋`)
 	var topN = regexp.MustCompile(`top\s*(\d+)`)
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
@@ -60,54 +60,24 @@ func (m *Middlewares) AddJiadan() {
 
 	jiadanSyncManager := NewJiadanSyncManager()
 
-	startSync := func(target string) {
-		c, err := jiadanSyncManager.New(target, m.cfg.Jiadan.SyncCron)
-		if err != nil {
-			logger.Error("Failed to create cron job", slog.String("target", target), slog.Any("error", err))
-			return
-		}
-
-		_, err = c.AddFunc(m.cfg.Jiadan.SyncCron, func() {
-			urls, err := m.getJiadanUpdate(getKey(target))
-			if err != nil || len(urls) == 0 {
-				logger.Debug("No jiadan update", slog.Any("error", err))
-				return
-			}
-			if base64Images, err := m.fetchJiadan(urls); err != nil {
-				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-			} else if len(base64Images) > 0 {
-				m.w.SendImage(wechat.NewTarget(target), base64Images...)
-			}
-		})
-
-		if err != nil {
-			logger.Error("Failed to add cron job", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
-			jiadanSyncManager.Cancel(target)
-			return
-		}
-
-		if err = jiadanSyncManager.StartSafely(target, c); err != nil {
-			logger.Error("Failed to start cron job", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
-			return
-		}
-		logger.Info("Started jiadan auto forwarding", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron))
-	}
-
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType != wechat.TextMessage || msg.FromUserId != m.cfg.App.Admin {
 			return false
 		}
 		if strings.HasPrefix(msg.Content, "#开启煎蛋定时转发") {
-			key := msg.GetTarget()
-			startSync(key)
-			m.redis.SAdd(m.ctx, JiaDanSyncKey, key)
+			target := msg.GetTarget()
+			if err := jiadanSyncManager.AddCron(m, target); err != nil {
+				logger.Error("Failed to add cron job", slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
+				return true
+			}
+			m.redis.SAdd(m.ctx, JiaDanSyncKey, target)
 			m.w.SendText(msg, "煎蛋定时转发已经开启")
 			return true
 		}
 		if strings.HasPrefix(msg.Content, "#关闭煎蛋定时转发") {
-			key := msg.GetTarget()
-			jiadanSyncManager.Cancel(key)
-			m.redis.SRem(m.ctx, JiaDanSyncKey, key)
+			target := msg.GetTarget()
+			jiadanSyncManager.Cancel(target)
+			m.redis.SRem(m.ctx, JiaDanSyncKey, target)
 			m.w.SendText(msg, "煎蛋定时转发已经关闭")
 			return true
 		}
@@ -117,54 +87,78 @@ func (m *Middlewares) AddJiadan() {
 	// automatically start jiadan forwarding
 	if targets := m.redis.SMembers(m.ctx, JiaDanSyncKey).Val(); len(targets) > 0 {
 		for _, target := range targets {
-			startSync(target)
+			if err := jiadanSyncManager.AddCron(m, target); err != nil {
+				logger.Error("Failed to add cron job", slog.String("cron", m.cfg.Jiadan.SyncCron), slog.Any("error", err))
+			} else {
+				logger.Info("Jiadan auto sync enabled", slog.String("target", target), slog.String("cron", m.cfg.Jiadan.SyncCron))
+			}
 		}
 	}
+
+	jiadanSyncManager.Start()
 }
 
 type JiadanSyncManager struct {
-	mp map[string]*cron.Cron
-	mu sync.RWMutex
+	mp   map[string]cron.EntryID
+	mu   sync.RWMutex
+	cron *cron.Cron
 }
 
 func NewJiadanSyncManager() *JiadanSyncManager {
 	return &JiadanSyncManager{
-		mp: make(map[string]*cron.Cron),
+		mp:   make(map[string]cron.EntryID),
+		mu:   sync.RWMutex{},
+		cron: cron.New(),
 	}
 }
 
-func (j *JiadanSyncManager) New(target string, cronExpr string) (*cron.Cron, error) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
+func (j *JiadanSyncManager) Start() {
+	j.cron.Start()
+}
+
+func (j *JiadanSyncManager) Exists(target string) bool {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
 	_, exists := j.mp[target]
-	if exists {
-		return nil, fmt.Errorf("cron job already exists for target: %s", target)
-	}
-
-	c := cron.New()
-	j.mp[target] = c
-	return c, nil
+	return exists
 }
 
-func (j *JiadanSyncManager) StartSafely(target string, c *cron.Cron) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-
-	// Double-check the cron still exists and hasn't been cancelled
-	if storedCron, exists := j.mp[target]; !exists || storedCron != c {
-		return fmt.Errorf("cron job was cancelled or replaced for target: %s", target)
+func (j *JiadanSyncManager) AddCron(m *Middlewares, target string) error {
+	if j.Exists(target) {
+		logger.Warn("Jiadan cron job already exists", slog.String("target", target))
+		return nil
 	}
 
-	c.Start()
+	id, err := j.cron.AddFunc(m.cfg.Jiadan.SyncCron, func() {
+		urls, err := m.getJiadanUpdate(getKey(target))
+		if err != nil || len(urls) == 0 {
+			logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
+			return
+		}
+		if base64Images, err := m.fetchJiadan(urls); err != nil {
+			logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
+		} else if len(base64Images) > 0 {
+			m.w.SendImage(wechat.NewTarget(target), base64Images...)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add cron job: %w", err)
+	}
+	j.mu.Lock()
+	j.mp[target] = id
+	j.mu.Unlock()
 	return nil
 }
 
 func (j *JiadanSyncManager) Cancel(target string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if c, ok := j.mp[target]; ok {
-		c.Stop()
+	if id, exists := j.mp[target]; exists {
+		j.cron.Remove(id)
 		delete(j.mp, target)
+		logger.Info("Jiadan cron job cancelled", slog.String("target", target))
+	} else {
+		logger.Warn("Jiadan cron job not found", slog.String("target", target))
 	}
 }
 

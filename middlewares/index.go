@@ -16,7 +16,7 @@ var logger = slogger.New("middlewares")
 
 type Middlewares struct {
 	ctx         context.Context
-	cfg         *config.Config
+cfg         *config.Config
 	w           *wechat.WechatClient
 	y           *yunzai.YunzaiClient
 	redis       *redis.Client
