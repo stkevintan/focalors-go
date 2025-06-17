@@ -250,6 +250,9 @@ func (m *WechatMessage) ParseCommand(cmd string, fs *flag.FlagSet) (bool, error)
 	}
 	args := strings.Fields(m.Content[len(cmdPrefix):])
 	err := fs.Parse(args)
+	if err == nil { 
+		return true, nil
+	}
 	if err.Error() == "flag: help requested" {
 		var usageBuf strings.Builder
 		fs.SetOutput(&usageBuf)
