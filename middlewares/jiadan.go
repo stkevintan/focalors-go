@@ -24,9 +24,7 @@ func (m *Middlewares) AddJiadan() {
 
 	var triggers = regexp.MustCompile(`^#煎蛋`)
 	var topN = regexp.MustCompile(`top\s*(\d+)`)
-	jiadanSyncManager := NewJiadanSyncManager(m.ctx, m.redis, func(target string, urls []string) {
-		m.w.SendImage(wechat.NewTarget(target), urls...)
-	})
+	jiadanSyncManager := NewJiadanSyncManager(m.ctx, m.redis)
 
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
@@ -91,6 +89,20 @@ func (m *Middlewares) AddJiadan() {
 		return false
 	})
 
+	// start a goroutine to send images
+	go func() {
+		defer close(jiadanSyncManager.Images)
+		for {
+			select {
+			case msg := <-jiadanSyncManager.Images:
+				m.w.SendImageBatch(msg)
+				time.Sleep(2 * time.Second)
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// automatically start jiadan forwarding
 	if targets := m.redis.SMembers(m.ctx, JiaDanSyncKey).Val(); len(targets) > 0 {
 		for _, target := range targets {
@@ -106,24 +118,24 @@ func (m *Middlewares) AddJiadan() {
 }
 
 type JiadanSyncManager struct {
-	mp       map[string]cron.EntryID
-	mu       sync.Mutex
-	cron     *cron.Cron
-	client   *resty.Client
-	ctx      context.Context
-	redis    *redis.Client
-	onImages func(string, []string)
+	mp     map[string]cron.EntryID
+	mu     sync.Mutex
+	cron   *cron.Cron
+	client *resty.Client
+	ctx    context.Context
+	redis  *redis.Client
+	Images chan *wechat.MessageUnit
 }
 
-func NewJiadanSyncManager(ctx context.Context, redis *redis.Client, onImages func(string, []string)) *JiadanSyncManager {
+func NewJiadanSyncManager(ctx context.Context, redis *redis.Client) *JiadanSyncManager {
 	return &JiadanSyncManager{
-		mp:       make(map[string]cron.EntryID),
-		mu:       sync.Mutex{},
-		cron:     cron.New(),
-		client:   resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
-		ctx:      ctx,
-		redis:    redis,
-		onImages: onImages,
+		mp:     make(map[string]cron.EntryID),
+		mu:     sync.Mutex{},
+		cron:   cron.New(),
+		client: resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
+		ctx:    ctx,
+		redis:  redis,
+		Images: make(chan *wechat.MessageUnit, 20),
 	}
 }
 
@@ -147,7 +159,10 @@ func (j *JiadanSyncManager) AddCron(target string, cfg *config.JiadanConfig) err
 		if base64Images, err := j.fetchJiadan(urls); err != nil {
 			logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
 		} else if len(base64Images) > 0 {
-			j.onImages(target, base64Images)
+			j.Images <- &wechat.MessageUnit{
+				Target:  target,
+				Content: base64Images,
+			}
 		}
 	})
 	if err != nil {

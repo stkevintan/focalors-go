@@ -112,52 +112,71 @@ func (m *VideoMessageItem) IsEmpty() bool {
 }
 
 // ==== Public API ====
+type MessageUnit struct {
+	Target  string
+	Content []string
+}
+
 type WechatTarget interface {
 	GetTarget() string
 }
 
-func (w *WechatClient) SendText(target WechatTarget, content ...string) (*ApiResult, error) {
-	flattenedContent := make([]TextMessageItem, 0, len(content))
-	for _, c := range content {
-		c = strings.Trim(c, " \n")
-		if c == "" {
-			continue
+func NewMessageUnit(target WechatTarget, content ...string) *MessageUnit {
+	return &MessageUnit{
+		Target:  target.GetTarget(),
+		Content: content,
+	}
+}
+
+func NewMessageUnit2(target string, content ...string) *MessageUnit {
+	return &MessageUnit{
+		Target:  target,
+		Content: content,
+	}
+}
+
+func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) (*ApiResult, error) {
+	flattenedContent := make([]TextMessageItem, 0, len(messages))
+	for _, m := range messages {
+		for _, content := range m.Content {
+			c := strings.Trim(content, " \n")
+			if c == "" {
+				continue
+			}
+			flattenedContent = append(flattenedContent, TextMessageItem{
+				ToUserName:  m.Target,
+				TextContent: c,
+				MsgType:     1,
+			})
 		}
-		flattenedContent = append(flattenedContent, TextMessageItem{
-			ToUserName:  target.GetTarget(),
-			TextContent: c,
-			MsgType:     1,
-		})
 	}
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
-type SimpleWechatTarget struct {
-	target string
+func (w *WechatClient) SendText(target WechatTarget, message ...string) (*ApiResult, error) {
+	return w.SendTextBatch(NewMessageUnit(target, message...))
 }
 
-func NewTarget(target string) *SimpleWechatTarget {
-	return &SimpleWechatTarget{target: target}
-}
-
-func (w *SimpleWechatTarget) GetTarget() string {
-	return w.target
-}
-
-func (w *WechatClient) SendImage(target WechatTarget, imageBase64 ...string) (*ApiResult, error) {
-	flattenedContent := make([]ImageMessageItem, 0, len(imageBase64))
-	for _, c := range imageBase64 {
-		c = strings.TrimPrefix(c, "base64://")
-		c = strings.Trim(c, " \n")
-		if c == "" {
-			continue
+func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) (*ApiResult, error) {
+	flattenedContent := make([]ImageMessageItem, 0, len(messages))
+	for _, m := range messages {
+		for _, content := range m.Content {
+			c := strings.TrimPrefix(content, "base64://")
+			c = strings.Trim(c, " \n")
+			if c == "" {
+				continue
+			}
+			flattenedContent = append(flattenedContent, ImageMessageItem{
+				ToUserName:   m.Target,
+				ImageContent: c,
+			})
 		}
-		flattenedContent = append(flattenedContent, ImageMessageItem{
-			ToUserName:   target.GetTarget(),
-			ImageContent: c,
-		})
 	}
 	return w.SendMessage(&ImageMessageModel{MsgItem: flattenedContent})
+}
+
+func (w *WechatClient) SendImage(target WechatTarget, message ...string) (*ApiResult, error) {
+	return w.SendImageBatch(NewMessageUnit(target, message...))
 }
 
 // ==== Received Message =======
