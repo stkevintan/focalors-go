@@ -20,13 +20,13 @@ func (m *Middlewares) AddJiadan() {
 	j := NewJiadanSyncManager(m.ctx, m.redis)
 
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
-		if args := msg.ParseCommand("煎蛋"); args != nil {
-			var top int
-			fs := flag.NewFlagSet("煎蛋", flag.ContinueOnError)
-			fs.IntVar(&top, "top", 1, "top N")
-			if err := fs.Parse(args); err != nil {
-				logger.Warn("Failed to parse Jiadan command", slog.Any("args", args), slog.Any("error", err))
-				m.w.SendText(msg, "煎蛋指令参数解析失败")
+		fs := flag.NewFlagSet("煎蛋", flag.ContinueOnError)
+		var top int
+		fs.IntVar(&top, "top", 1, "top N")
+		if ok, err := msg.ParseCommand("煎蛋", fs); ok {
+			if err != nil {
+				logger.Warn("Failed to parse Jiadan command", slog.Any("error", err))
+				m.w.SendText(msg, err.Error())
 				return false
 			}
 			urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
@@ -54,24 +54,24 @@ func (m *Middlewares) AddJiadan() {
 	})
 
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
-		if args := msg.ParseCommand("煎蛋自动同步"); args != nil {
+		fs := flag.NewFlagSet("煎蛋同步", flag.ContinueOnError)
+		var (
+			off  bool
+			cron string
+			top  int
+		)
+		fs.BoolVar(&off, "off", false, "on/off")
+		fs.StringVar(&cron, "cron", m.cfg.Jiadan.SyncCron, "cron spec")
+		fs.IntVar(&top, "top", m.cfg.Jiadan.MaxSyncCount, "limit top N")
+		if ok, err := msg.ParseCommand("煎蛋自动同步", fs); ok {
+			if err != nil {
+				logger.Warn("Failed to parse Jiadan sync command", slog.Any("error", err))
+				m.w.SendText(msg, err.Error())
+				return true
+			}
 			if msg.FromUserId != m.cfg.App.Admin {
 				m.w.SendText(msg, "只有管理员能执行此操作")
 				return false
-			}
-			var (
-				off  bool
-				cron string
-				top  int
-			)
-			fs := flag.NewFlagSet("煎蛋自动同步", flag.ContinueOnError)
-			fs.BoolVar(&off, "off", false, "on/off")
-			fs.StringVar(&cron, "cron", m.cfg.Jiadan.SyncCron, "cron spec")
-			fs.IntVar(&top, "top", m.cfg.Jiadan.MaxSyncCount, "limit top N")
-			if err := fs.Parse(args); err != nil {
-				logger.Warn("Failed to parse Jiadan sync command", slog.Any("args", args), slog.Any("error", err))
-				m.w.SendText(msg, "煎蛋同步指令参数解析失败")
-				return true
 			}
 			target := msg.GetTarget()
 			key := getKey(target)

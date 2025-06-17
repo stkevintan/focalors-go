@@ -1,6 +1,7 @@
 package wechat
 
 import (
+	"flag"
 	"fmt"
 	"strings"
 )
@@ -239,13 +240,21 @@ func (w *WechatMessage) GetTarget() string {
 	return w.FromUserId
 }
 
-func (m *WechatMessage) ParseCommand(cmd string) []string {
+func (m *WechatMessage) ParseCommand(cmd string, fs *flag.FlagSet) (bool, error) {
 	if m.MsgType != TextMessage {
-		return nil
+		return false, nil
 	}
 	var cmdPrefix = fmt.Sprintf("#%s ", cmd)
 	if !strings.HasPrefix(m.Content, cmdPrefix) {
-		return nil
+		return false, nil
 	}
-	return strings.Fields(m.Content[len(cmdPrefix):])
+	args := strings.Fields(m.Content[len(cmdPrefix):])
+	err := fs.Parse(args)
+	if err.Error() == "flag: help requested" {
+		var usageBuf strings.Builder
+		fs.SetOutput(&usageBuf)
+		fs.Usage()
+		return true, fmt.Errorf("%s", usageBuf.String())
+	}
+	return true, err
 }
