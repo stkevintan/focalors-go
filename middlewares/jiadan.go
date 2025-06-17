@@ -41,7 +41,7 @@ func (m *Middlewares) AddJiadan() {
 					top = parsedTop
 				}
 			}
-			urls, err := jiadanSyncManager.getJiadanTop(getKey(msg.GetTarget()), top, 0)
+			urls, err := jiadanSyncManager.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
 			if err != nil {
 				logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
 				m.w.SendText(msg, "获取煎蛋失败")
@@ -151,7 +151,7 @@ func (j *JiadanSyncManager) AddCron(target string, cfg *config.JiadanConfig) err
 		return nil
 	}
 	id, err := j.cron.AddFunc(cfg.SyncCron, func() {
-		urls, err := j.getJiadanUpdate(getKey(target), cfg.MaxSyncCount)
+		urls, err := j.getJiadanTop(getKey(target), cfg.MaxSyncCount, 0, true)
 		if err != nil || len(urls) == 0 {
 			logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
 			return
@@ -210,45 +210,6 @@ func useCDN(url string) string {
 	return fmt.Sprintf("https://img.toto.im/large/%s", file)
 }
 
-func (j *JiadanSyncManager) getJiadanUpdate(key string, maxSyncCount int) ([]string, error) {
-	commentUrl := "https://i.jandan.net/?oxwlxojflwblxbsapi=jandan.get_pic_comments"
-	jiadan := &JiadanResponse{}
-	urls := []string{}
-	resp, err := j.client.R().SetResult(jiadan).Get(commentUrl)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("unexpected status code: %s", resp.Status())
-	}
-
-	for _, comment := range jiadan.Comments {
-		logger.Debug("Jiadan comment", slog.String("id", comment.CommentId))
-		if comment.CommentAuthor == "sein" {
-			continue
-		}
-		commentKey := fmt.Sprintf("%s%s", key, comment.CommentId)
-		if j.redis.Exists(j.ctx, commentKey).Val() == 1 {
-			logger.Debug("Comment already visited", slog.String("id", comment.CommentId))
-			return nil, fmt.Errorf("comment already visited: %s", comment.CommentId)
-		}
-		for _, pic := range comment.Pics {
-			if strings.HasSuffix(pic, ".gif") {
-				// gif is not supported
-				continue
-			}
-			url := useCDN(pic)
-			urls = append(urls, url)
-		}
-		j.saveVisited(commentKey, comment)
-		// break if we have too many pics
-		if len(urls) >= maxSyncCount {
-			break
-		}
-	}
-	return urls, nil
-}
-
 func (j *JiadanSyncManager) saveVisited(commentKey string, comment JiadanComment) {
 	parsedTime, err := time.Parse("2006-01-02 15:04:05", comment.CommentDate)
 	if err != nil {
@@ -259,7 +220,7 @@ func (j *JiadanSyncManager) saveVisited(commentKey string, comment JiadanComment
 	j.redis.Set(j.ctx, commentKey, strings.Join(comment.Pics, ","), time.Until(parsedTime.AddDate(0, 0, 15)))
 }
 
-func (j *JiadanSyncManager) getJiadanTop(key string, top int, page int) ([]string, error) {
+func (j *JiadanSyncManager) getJiadanTop(key string, top int, page int, syncMode bool) ([]string, error) {
 	commentUrl := "https://i.jandan.net/?oxwlxojflwblxbsapi=jandan.get_pic_comments"
 	if page > 0 {
 		commentUrl = fmt.Sprintf("%s&page=%d", commentUrl, page)
@@ -281,8 +242,11 @@ func (j *JiadanSyncManager) getJiadanTop(key string, top int, page int) ([]strin
 		if comment.CommentAuthor == "sein" {
 			continue
 		}
-		commentKey := fmt.Sprintf("%s%s", key, comment.CommentId)
+		commentKey := fmt.Sprintf("%s:%s", key, comment.CommentId)
 		if j.redis.Exists(j.ctx, commentKey).Val() == 1 {
+			if syncMode {
+				return nil, fmt.Errorf("comment already visited: %s", comment.CommentId)
+			}
 			logger.Debug("Comment already visited", slog.String("id", comment.CommentId))
 			continue
 		}
@@ -306,7 +270,7 @@ func (j *JiadanSyncManager) getJiadanTop(key string, top int, page int) ([]strin
 		}
 	}
 	if cnt < top && jiadan.CurrentPage < jiadan.PageCount {
-		nextUrls, err := j.getJiadanTop(key, top-cnt, jiadan.CurrentPage+1)
+		nextUrls, err := j.getJiadanTop(key, top-cnt, jiadan.CurrentPage+1, syncMode)
 		if err != nil {
 			return urls, err
 		}
