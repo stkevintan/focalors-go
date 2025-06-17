@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"fmt"
 	"focalors-go/config"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
@@ -51,21 +52,30 @@ func (m *Middlewares) Start() {
 	m.cron.Start()
 }
 
-var CronJobKey = "cron:jobs"
+func getCronKey(name string) string {
+	return fmt.Sprintf("cron:job:%s", name)
+}
 
-func (m *Middlewares) AddCronJob(name string, spec string, job func()) error {
+func (m *Middlewares) AddCronJob(name string, job func(params map[string]string), params map[string]string) error {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
+	spec := params["spec"]
+	if spec == "" {
+		spec = m.cfg.Jiadan.SyncCron
+	}
 	if id, exists := m.cronJobs[name]; exists {
 		// remove existing job
 		m.cron.Remove(id)
 	}
-	id, err := m.cron.AddFunc(spec, job)
+	id, err := m.cron.AddFunc(spec, func() {
+		job(params)
+	})
 	if err != nil {
 		return err
 	}
 	m.cronJobs[name] = id
-	m.redis.HSet(m.ctx, CronJobKey, name, spec)
+	key := getCronKey(name)
+	m.redis.HSet(m.ctx, key, params)
 	return nil
 }
 
@@ -75,12 +85,20 @@ func (m *Middlewares) RemoveCronJob(name string) {
 	if id, exists := m.cronJobs[name]; exists {
 		m.cron.Remove(id)
 		delete(m.cronJobs, name)
-		m.redis.HDel(m.ctx, CronJobKey, name)
+		key := getCronKey(name)
+		m.redis.Del(m.ctx, key)
 	}
 }
 
-func (m *Middlewares) GetCronJobs() map[string]string {
+func (m *Middlewares) GetCronJobs(key string) (jobs []map[string]string) {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
-	return m.redis.HGetAll(m.ctx, CronJobKey).Val()
+
+	// iterate all the keys with "cron:job:{key}"
+	keys := m.redis.Keys(m.ctx, getCronKey(key)).Val()
+	for _, key := range keys {
+		val := m.redis.HGetAll(m.ctx, key).Val()
+		jobs = append(jobs, val)
+	}
+	return
 }

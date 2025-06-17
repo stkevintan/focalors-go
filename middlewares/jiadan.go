@@ -8,6 +8,7 @@ import (
 	"focalors-go/wechat"
 	"log/slog"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,23 +60,30 @@ func (m *Middlewares) AddJiadan() {
 				return false
 			}
 			var (
-				on   bool
+				off  bool
 				cron string
+				top  int
 			)
 			fs := flag.NewFlagSet("煎蛋自动同步", flag.ContinueOnError)
-			fs.BoolVar(&on, "on", true, "on/off")
-			fs.StringVar(&cron, "cron", "*/60 8-23 * * *", "cron spec")
+			fs.BoolVar(&off, "off", true, "on/off")
+			fs.StringVar(&cron, "cron", m.cfg.Jiadan.SyncCron, "cron spec")
+			fs.IntVar(&top, "top", m.cfg.Jiadan.MaxSyncCount, "limit top N")
 			if err := fs.Parse(args); err != nil {
 				logger.Warn("Failed to parse Jiadan sync command", slog.Any("args", args), slog.Any("error", err))
 				m.w.SendText(msg, "煎蛋同步指令参数解析失败")
 				return true
 			}
 			target := msg.GetTarget()
-			if on {
-				m.AddCronJob(target, cron, j.CreateJob(target, m.cfg.Jiadan.MaxSyncCount))
+			key := getKey(target)
+			if !off {
+				m.AddCronJob(key, j.SyncJob, map[string]string{
+					"spec":         cron,
+					"target":       target,
+					"maxSyncCount": strconv.Itoa(top),
+				})
 				m.w.SendText(msg, "煎蛋自动同步已经开启")
 			} else {
-				m.RemoveCronJob(target)
+				m.RemoveCronJob(key)
 				m.w.SendText(msg, "煎蛋自动同步已经关闭")
 			}
 			return true
@@ -98,32 +106,40 @@ func (m *Middlewares) AddJiadan() {
 	}()
 
 	// automatically start jiadan sync on startup
-	if targets := m.GetCronJobs(); len(targets) > 0 {
-		for target, spec := range targets {
-			job := j.CreateJob(target, m.cfg.Jiadan.MaxSyncCount)
-			if err := m.AddCronJob(target, spec, job); err != nil {
-				logger.Error("Failed to add cron job", slog.String("cron", spec), slog.Any("error", err))
+	if params := m.GetCronJobs(getKey("*")); len(params) > 0 {
+		for _, p := range params {
+			target := p["target"]
+			if target == "" {
+				logger.Warn("Invalid cron job params", slog.Any("params", p))
+				continue
+			}
+			if err := m.AddCronJob(getKey(target), j.SyncJob, p); err != nil {
+				logger.Error("Failed to add cron job", slog.Any("error", err))
 			} else {
-				logger.Info("Jiadan auto sync enabled", slog.String("target", target), slog.String("cron", spec))
+				logger.Info("Jiadan auto sync enabled", slog.String("target", target), slog.Any("params", p))
 			}
 		}
 	}
 }
 
-func (j *JiadanSyncManager) CreateJob(target string, maxSyncCount int) func() {
-	return func() {
-		urls, err := j.getJiadanTop(getKey(target), maxSyncCount, 0, true)
-		if err != nil || len(urls) == 0 {
-			logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
-			return
-		}
-		if base64Images, err := j.fetchJiadan(urls); err != nil {
-			logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
-		} else if len(base64Images) > 0 {
-			j.Images <- &wechat.MessageUnit{
-				Target:  target,
-				Content: base64Images,
-			}
+func (j *JiadanSyncManager) SyncJob(ctx map[string]string) {
+	target := ctx["target"]
+	maxSyncCount := ctx["maxSyncCount"]
+	maxSyncCountInt, _ := strconv.Atoi(maxSyncCount)
+	if maxSyncCountInt <= 0 {
+		maxSyncCountInt = 1
+	}
+	urls, err := j.getJiadanTop(getKey(target), maxSyncCountInt, 0, true)
+	if err != nil || len(urls) == 0 {
+		logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
+		return
+	}
+	if base64Images, err := j.fetchJiadan(urls); err != nil {
+		logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
+	} else if len(base64Images) > 0 {
+		j.Images <- &wechat.MessageUnit{
+			Target:  target,
+			Content: base64Images,
 		}
 	}
 }
