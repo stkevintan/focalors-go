@@ -65,7 +65,7 @@ func (m *Middlewares) AddJiadan() {
 				top  int
 			)
 			fs := flag.NewFlagSet("煎蛋自动同步", flag.ContinueOnError)
-			fs.BoolVar(&off, "off", true, "on/off")
+			fs.BoolVar(&off, "off", false, "on/off")
 			fs.StringVar(&cron, "cron", m.cfg.Jiadan.SyncCron, "cron spec")
 			fs.IntVar(&top, "top", m.cfg.Jiadan.MaxSyncCount, "limit top N")
 			if err := fs.Parse(args); err != nil {
