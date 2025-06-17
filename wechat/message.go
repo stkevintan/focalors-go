@@ -238,3 +238,14 @@ func (w *WechatMessage) GetTarget() string {
 	}
 	return w.FromUserId
 }
+
+func (m *WechatMessage) ParseCommand(cmd string) []string {
+	if m.MsgType != TextMessage {
+		return nil
+	}
+	var cmdPrefix = fmt.Sprintf("#%s ", cmd)
+	if !strings.HasPrefix(m.Content, cmdPrefix) {
+		return nil
+	}
+	return strings.Fields(m.Content[len(cmdPrefix):])
+}

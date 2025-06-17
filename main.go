@@ -100,7 +100,9 @@ func main() {
 
 	y := yunzai.NewYunzai(ctx, cfg)
 	w := wechat.NewWechat(ctx, cfg)
-	middlewares.NewMiddlewares(ctx, cfg, w, y, redisClient).Init()
+	m := middlewares.NewMiddlewares(ctx, cfg, w, y, redisClient)
+	m.Start()
+	defer m.Stop()
 	select {
 	case err := <-runServiceAsync(y, w):
 		logger.Error("Service failed", slog.Any("error", err))
