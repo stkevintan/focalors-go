@@ -53,14 +53,24 @@ func (m *Middlewares) AddBridge() {
 	m.y.AddMessageHandler(func(msg *yunzai.Response) bool {
 		for _, content := range msg.Content {
 			if content.Type == "text" {
-				content := strings.Trim(content.Data.(string), " \n")
-				if content == "" {
+				// {"type":"text","data":false}
+				content, ok := content.Data.(string)
+				if !ok {
+					logger.Error("Failed to convert content to string", slog.Any("content", content))
 					continue
 				}
-				m.w.SendText(msg, content)
+				content = strings.Trim(content, " \n")
+				if content != "" {
+					m.w.SendText(msg, content)
+				}
 			}
 			if content.Type == "image" {
-				m.w.SendImage(msg, content.Data.(string))
+				content, ok := content.Data.(string)
+				if !ok {
+					logger.Error("Failed to convert content to string", slog.Any("content", content))
+					continue
+				}
+				m.w.SendImage(msg, content)
 			}
 		}
 		return false
