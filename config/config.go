@@ -94,6 +94,10 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("wechat token is required")
 	}
 
+	if config.Jiadan.MaxSyncCount < 1 {
+		return nil, fmt.Errorf("jiadan max sync count must be greater than 0")
+	}
+
 	return &config, nil
 }
 

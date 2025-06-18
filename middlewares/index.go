@@ -36,6 +36,7 @@ func NewMiddlewares(ctx context.Context, cfg *config.Config, w *wechat.WechatCli
 		y:           y,
 		redis:       redis,
 		cron:        cron.New(),
+		cronJobs:    map[string]cron.EntryID{},
 		avatarCache: map[string]string{},
 	}
 }
@@ -63,15 +64,17 @@ func (m *Middlewares) AddCronJob(name string, job func(params map[string]string)
 	if spec == "" {
 		spec = m.cfg.Jiadan.SyncCron
 	}
-	if id, exists := m.cronJobs[name]; exists {
-		// remove existing job
-		m.cron.Remove(id)
-	}
+
 	id, err := m.cron.AddFunc(spec, func() {
 		job(params)
 	})
 	if err != nil {
 		return err
+	}
+	// delete previous job if exists
+	if id, exists := m.cronJobs[name]; exists {
+		// remove existing job
+		m.cron.Remove(id)
 	}
 	m.cronJobs[name] = id
 	key := getCronKey(name)

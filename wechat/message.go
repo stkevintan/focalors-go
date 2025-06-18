@@ -3,7 +3,10 @@ package wechat
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"strings"
+
+	"github.com/google/shlex"
 )
 
 type SendMessage interface {
@@ -240,24 +243,36 @@ func (w *WechatMessage) GetTarget() string {
 	return w.FromUserId
 }
 
-func (m *WechatMessage) ParseCommand(cmd string, fs *flag.FlagSet) (bool, error) {
+func splitAndParse(fs *flag.FlagSet, content string) error {
+	args, err := shlex.Split(content)
+	if err != nil {
+		return err
+	}
+	return fs.Parse(args)
+}
+
+func (m *WechatMessage) ParseCommand(fs *flag.FlagSet) (bool, string) {
 	if m.MsgType != TextMessage {
-		return false, nil
+		return false, ""
 	}
-	var cmdPrefix = fmt.Sprintf("#%s ", cmd)
-	if !strings.HasPrefix(m.Content, cmdPrefix) {
-		return false, nil
+	content := strings.Trim(m.Content, " \n")
+	cmdPrefix := fmt.Sprintf("#%s", fs.Name())
+	if !strings.HasPrefix(content, cmdPrefix) {
+		return false, ""
 	}
-	args := strings.Fields(m.Content[len(cmdPrefix):])
-	err := fs.Parse(args)
-	if err == nil { 
-		return true, nil
+	if len(content) != len(cmdPrefix) && content[len(cmdPrefix)] != ' ' {
+		return false, ""
+	}
+	err := splitAndParse(fs, content[len(cmdPrefix):])
+	if err == nil {
+		return true, ""
 	}
 	if err.Error() == "flag: help requested" {
 		var usageBuf strings.Builder
 		fs.SetOutput(&usageBuf)
 		fs.Usage()
-		return true, fmt.Errorf("%s", usageBuf.String())
+		return true, usageBuf.String()
 	}
-	return true, err
+	logger.Error("failed to parse command", slog.String("command", fs.Name()), slog.Any("error", err))
+	return true, fmt.Sprintf("解析失败，发送`#%s -h` 获得帮助", fs.Name())
 }

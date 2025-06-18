@@ -22,69 +22,61 @@ func (m *Middlewares) AddJiadan() {
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		fs := flag.NewFlagSet("煎蛋", flag.ContinueOnError)
 		var top int
-		fs.IntVar(&top, "top", 1, "top N")
-		if ok, err := msg.ParseCommand("煎蛋", fs); ok {
-			if err != nil {
-				logger.Warn("Failed to parse Jiadan command", slog.Any("error", err))
-				m.w.SendText(msg, err.Error())
-				return false
-			}
-			urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
-			if err != nil {
-				logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
-				m.w.SendText(msg, "获取煎蛋失败")
+		var cron string
+		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
+		fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", m.cfg.Jiadan.MaxSyncCount))
+		if ok, help := msg.ParseCommand(fs); ok {
+			if help != "" {
+				m.w.SendText(msg, help)
 				return true
 			}
-			if len(urls) == 0 {
-				m.w.SendText(msg, "没有找到新的煎蛋无聊图")
+			if top < 1 || top > m.cfg.Jiadan.MaxSyncCount {
+				m.w.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", m.cfg.Jiadan.MaxSyncCount))
 				return true
 			}
+			// 手动同步
+			if cron == "" {
+				urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
+				if err != nil {
+					logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
+					m.w.SendText(msg, "获取煎蛋失败")
+					return true
+				}
+				if len(urls) == 0 {
+					m.w.SendText(msg, "没有找到新的煎蛋无聊图")
+					return true
+				}
 
-			if base64Images, err := j.fetchJiadan(urls); err != nil {
-				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-				m.w.SendText(msg, "煎蛋无聊图下载失败")
-			} else if len(base64Images) > 0 {
-				m.w.SendImage(msg, base64Images...)
-			} else {
-				m.w.SendText(msg, "煎蛋无聊图下载失败")
-			}
-			return true
-		}
-		return false
-	})
-
-	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
-		fs := flag.NewFlagSet("煎蛋同步", flag.ContinueOnError)
-		var (
-			off  bool
-			cron string
-			top  int
-		)
-		fs.BoolVar(&off, "off", false, "on/off")
-		fs.StringVar(&cron, "cron", m.cfg.Jiadan.SyncCron, "cron spec")
-		fs.IntVar(&top, "top", m.cfg.Jiadan.MaxSyncCount, "limit top N")
-		if ok, err := msg.ParseCommand("煎蛋自动同步", fs); ok {
-			if err != nil {
-				logger.Warn("Failed to parse Jiadan sync command", slog.Any("error", err))
-				m.w.SendText(msg, err.Error())
+				if base64Images, err := j.fetchJiadan(urls); err != nil {
+					logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
+					m.w.SendText(msg, "煎蛋无聊图下载失败")
+				} else if len(base64Images) > 0 {
+					m.w.SendImage(msg, base64Images...)
+				} else {
+					m.w.SendText(msg, "煎蛋无聊图下载失败")
+				}
 				return true
 			}
-			if msg.FromUserId != m.cfg.App.Admin {
-				m.w.SendText(msg, "只有管理员能执行此操作")
-				return false
-			}
-			target := msg.GetTarget()
-			key := getKey(target)
-			if !off {
-				m.AddCronJob(key, j.SyncJob, map[string]string{
-					"spec":         cron,
-					"target":       target,
-					"maxSyncCount": strconv.Itoa(top),
-				})
-				m.w.SendText(msg, "煎蛋自动同步已经开启")
-			} else {
-				m.RemoveCronJob(key)
+			// 关闭自动同步
+			if cron == "off" {
+				m.RemoveCronJob(getKey(msg.GetTarget()))
 				m.w.SendText(msg, "煎蛋自动同步已经关闭")
+				return true
+			}
+			if cron == "default" {
+				cron = m.cfg.Jiadan.SyncCron
+			}
+			// 开启自动同步
+			err := m.AddCronJob(getKey(msg.GetTarget()), j.SyncJob, map[string]string{
+				"spec":   cron,
+				"target": msg.GetTarget(),
+				"top":    strconv.Itoa(top),
+			})
+			if err != nil {
+				logger.Error("Failed to add cron job", slog.Any("error", err))
+				m.w.SendText(msg, "煎蛋自动同步开启失败, 请检查cron表达式")
+			} else {
+				m.w.SendText(msg, "煎蛋自动同步已经开启")
 			}
 			return true
 		}
@@ -124,12 +116,12 @@ func (m *Middlewares) AddJiadan() {
 
 func (j *JiadanSyncManager) SyncJob(ctx map[string]string) {
 	target := ctx["target"]
-	maxSyncCount := ctx["maxSyncCount"]
-	maxSyncCountInt, _ := strconv.Atoi(maxSyncCount)
-	if maxSyncCountInt <= 0 {
-		maxSyncCountInt = 1
+	topStr := ctx["top"]
+	top, _ := strconv.Atoi(topStr)
+	if top <= 0 {
+		top = 1
 	}
-	urls, err := j.getJiadanTop(getKey(target), maxSyncCountInt, 0, true)
+	urls, err := j.getJiadanTop(getKey(target), top, 0, true)
 	if err != nil || len(urls) == 0 {
 		logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
 		return
