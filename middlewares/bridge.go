@@ -75,6 +75,8 @@ func (m *Middlewares) AddBridge() {
 					userType = "direct"
 				}
 
+				message.Content = strings.TrimPrefix(message.Content, "#!")
+
 				sent := yunzai.Request{
 					BotSelfId: "focalors",
 					MsgId:     fmt.Sprintf("%d", message.MsgId),
