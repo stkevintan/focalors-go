@@ -80,6 +80,29 @@ func (m *Middlewares) AddJiadan() {
 			}
 			return true
 		}
+
+		if msg.Content == "#煎蛋任务" && msg.FromUserId == m.cfg.App.Admin && msg.ChatType == wechat.ChatTypePrivate {
+			entries := m.cron.Entries()
+			if len(entries) == 0 {
+				m.w.SendText(msg, "没有煎蛋任务")
+				return true
+			}
+			var tasks strings.Builder
+			m.cronMutex.Lock()
+			for _, entry := range entries {
+				name := "未知"
+				for key, id := range m.cronJobs {
+					if id == entry.ID {
+						name = key
+						break
+					}
+				}
+				tasks.WriteString(fmt.Sprintf("任务 %s(%d): 上次执行: %s, 下次执行: %s\n", name, entry.ID, entry.Prev.String(), entry.Next.String()))
+			}
+			m.cronMutex.Unlock()
+			m.w.SendText(msg, tasks.String())
+			return true
+		}
 		return false
 	})
 
