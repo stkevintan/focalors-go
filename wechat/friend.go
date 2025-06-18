@@ -34,3 +34,18 @@ func (w *WechatClient) GetContactDetails(users []string, rooms []string) (*GetCo
 	}
 	return res, nil
 }
+
+type GetChatRoomInfoModel struct {
+	ChatRoomWxIdList []string `json:"ChatRoomWxIdList"`
+}
+
+// more room specific fields
+func (w *WechatClient) GetChatRoomInfo(rooms []string) (*GetContactDetailsApiResult, error) {
+	res := &GetContactDetailsApiResult{}
+	if _, err := w.doPostAPICall("/group/GetChatRoomInfo", &GetChatRoomInfoModel{
+		ChatRoomWxIdList: rooms,
+	}, res); err != nil {
+		return nil, err
+	}
+	return res, nil
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/robfig/cron/v3"
 	"resty.dev/v3"
 )
 
@@ -89,20 +90,70 @@ func (m *Middlewares) AddJiadan() {
 				m.w.SendText(msg, "没有煎蛋任务")
 				return true
 			}
-			var tasks strings.Builder
 			m.cronMutex.Lock()
+			type TaskEntry struct {
+				ID   cron.EntryID
+				Prev time.Time
+				Next time.Time
+				Key  string
+				Name string
+			}
+			tasks := []TaskEntry{}
+			rooms := []string{}
+			users := []string{}
 			for _, entry := range entries {
-				name := "未知"
+				name := ""
 				for key, id := range m.cronJobs {
 					if id == entry.ID {
 						name = key
 						break
 					}
 				}
-				tasks.WriteString(fmt.Sprintf("任务 %s(%d): 上次执行: %s, 下次执行: %s\n", name, entry.ID, entry.Prev.String(), entry.Next.String()))
+				if name != "" {
+					name = strings.Split(name, ":")[1]
+					if strings.HasSuffix(name, "@chatroom") {
+						rooms = append(rooms, name)
+					} else {
+						users = append(users, name)
+					}
+				}
+				tasks = append(tasks, TaskEntry{
+					ID:   entry.ID,
+					Prev: entry.Prev,
+					Next: entry.Next,
+					Key:  name,
+				})
 			}
 			m.cronMutex.Unlock()
-			m.w.SendText(msg, tasks.String())
+			var nicknameMap = make(map[string]string)
+			contacts, err := m.w.GetContactDetails(users, rooms)
+			if err != nil {
+				logger.Warn("Failed to get contact details", slog.Any("error", err))
+			} else {
+				for _, contact := range contacts.Data.ContactList {
+					nicknameMap[contact.UserName.Str] = contact.NickName.Str
+				}
+			}
+			roomsInfo, err := m.w.GetChatRoomInfo(rooms)
+			if err != nil {
+				logger.Warn("Failed to get chat room info", slog.Any("error", err))
+			} else {
+				for _, contact := range roomsInfo.Data.ContactList {
+					nicknameMap[contact.UserName.Str] = contact.NickName.Str
+				}
+			}
+			var text strings.Builder
+			for _, task := range tasks {
+				nickname := nicknameMap[task.Key]
+				if nickname == "" {
+					nickname = task.Key
+				}
+				text.WriteString(fmt.Sprintf("任务: %s ", nickname))
+				text.WriteString(fmt.Sprintf("上次执行: %s ", task.Prev.Format("2006-01-02 15:04:05")))
+				text.WriteString(fmt.Sprintf("下次执行: %s ", task.Next.Format("2006-01-02 15:04:05")))
+				text.WriteString("\n")
+			}
+			m.w.SendText(msg, text.String())
 			return true
 		}
 		return false
@@ -140,23 +191,25 @@ func (m *Middlewares) AddJiadan() {
 }
 
 func ValidateCronInterval(spec string, minInterval time.Duration) error {
-	fields := strings.Fields(spec)
-	if len(fields) < 5 {
-		return fmt.Errorf("cron表达式无效")
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(spec)
+	if err != nil {
+		return fmt.Errorf("cron表达式无效: %v", err)
 	}
-	minuteField := fields[0]
-	if minuteField == "*" {
-		return fmt.Errorf("分钟字段不能为*")
-	}
-	// Only handle step values like */N
-	if strings.HasPrefix(minuteField, "*/") {
-		n, err := strconv.Atoi(minuteField[2:])
-		if err != nil {
-			return fmt.Errorf("分钟字段无效: %v", err)
+	now := time.Now()
+	prev := schedule.Next(now)
+	// Check for 1 days ahead
+	end := now.Add(1 * 24 * time.Hour)
+	for prev.Before(end) {
+		next := schedule.Next(prev)
+		if next.After(end) {
+			break
 		}
-		if time.Duration(n)*time.Minute < minInterval {
-			return fmt.Errorf("定时任务最小间隔不能小于 %v", minInterval)
+		interval := next.Sub(prev)
+		if interval < minInterval {
+			return fmt.Errorf("cron表达式间隔时间太短: %s", interval)
 		}
+		prev = next
 	}
 	return nil
 }
