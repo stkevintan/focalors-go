@@ -3,7 +3,6 @@ package middlewares
 import (
 	"context"
 	"encoding/base64"
-	"flag"
 	"fmt"
 	"focalors-go/wechat"
 	"log/slog"
@@ -18,16 +17,14 @@ import (
 
 func (m *Middlewares) AddJiadan() {
 	j := NewJiadanSyncManager(m.ctx, m.redis)
-
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
-		fs := flag.NewFlagSet("煎蛋", flag.ContinueOnError)
-		var top int
-		var cron string
-		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
-		fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", m.cfg.Jiadan.MaxSyncCount))
-		if ok, help := msg.ParseCommand(fs); ok {
-			if help != "" {
-				m.w.SendText(msg, help)
+		if fs := msg.ToFlagSet("煎蛋"); fs != nil {
+			var top int
+			var cron string
+			fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
+			fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", m.cfg.Jiadan.MaxSyncCount))
+			if err := fs.Parse(); err != nil {
+				m.w.SendText(msg, err.Error())
 				return true
 			}
 			if top < 1 || top > m.cfg.Jiadan.MaxSyncCount {

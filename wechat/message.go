@@ -243,36 +243,47 @@ func (w *WechatMessage) GetTarget() string {
 	return w.FromUserId
 }
 
-func splitAndParse(fs *flag.FlagSet, content string) error {
-	args, err := shlex.Split(content)
+type MessageFlagSet struct {
+	flag.FlagSet
+	argStr string
+}
+
+func (m *MessageFlagSet) SplitParse() error {
+	args, err := shlex.Split(m.argStr)
 	if err != nil {
 		return err
 	}
-	return fs.Parse(args)
+	return m.FlagSet.Parse(args)
 }
 
-func (m *WechatMessage) ParseCommand(fs *flag.FlagSet) (bool, string) {
+func (m *MessageFlagSet) Parse() error {
+	if err := m.SplitParse(); err != nil {
+		if err.Error() == "flag: help requested" {
+			var usageBuf strings.Builder
+			m.SetOutput(&usageBuf)
+			m.Usage()
+			return fmt.Errorf("%s", usageBuf.String())
+		}
+		logger.Error("failed to parse command", slog.Any("error", err))
+		return fmt.Errorf("解析失败，发送`#%s -h` 获得帮助", m.Name())
+	}
+	return nil
+}
+
+func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
 	if m.MsgType != TextMessage {
-		return false, ""
+		return nil
 	}
 	content := strings.Trim(m.Content, " \n")
-	cmdPrefix := fmt.Sprintf("#%s", fs.Name())
+	cmdPrefix := fmt.Sprintf("#%s", name)
 	if !strings.HasPrefix(content, cmdPrefix) {
-		return false, ""
+		return nil
 	}
 	if len(content) != len(cmdPrefix) && content[len(cmdPrefix)] != ' ' {
-		return false, ""
+		return nil
 	}
-	err := splitAndParse(fs, content[len(cmdPrefix):])
-	if err == nil {
-		return true, ""
+	return &MessageFlagSet{
+		FlagSet: *flag.NewFlagSet(name, flag.ContinueOnError),
+		argStr:  content[len(cmdPrefix):],
 	}
-	if err.Error() == "flag: help requested" {
-		var usageBuf strings.Builder
-		fs.SetOutput(&usageBuf)
-		fs.Usage()
-		return true, usageBuf.String()
-	}
-	logger.Error("failed to parse command", slog.String("command", fs.Name()), slog.Any("error", err))
-	return true, fmt.Sprintf("解析失败，发送`#%s -h` 获得帮助", fs.Name())
 }
