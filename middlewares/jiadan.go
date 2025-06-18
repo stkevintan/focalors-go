@@ -23,14 +23,15 @@ func (m *Middlewares) AddJiadan() {
 			var cron string
 			fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
 			fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", m.cfg.Jiadan.MaxSyncCount))
-			if err := fs.Parse(); err != nil {
-				m.w.SendText(msg, err.Error())
+			if help := fs.Parse(); help != "" {
+				m.w.SendText(msg, help)
 				return true
 			}
 			if top < 1 || top > m.cfg.Jiadan.MaxSyncCount {
 				m.w.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", m.cfg.Jiadan.MaxSyncCount))
 				return true
 			}
+
 			// 手动同步
 			if cron == "" {
 				urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
@@ -62,6 +63,10 @@ func (m *Middlewares) AddJiadan() {
 			}
 			if cron == "default" {
 				cron = m.cfg.Jiadan.SyncCron
+			}
+			if err := ValidateCronInterval(cron, 10*time.Minute); err != nil {
+				m.w.SendText(msg, err.Error())
+				return true
 			}
 			// 开启自动同步
 			err := m.AddCronJob(getKey(msg.GetTarget()), j.SyncJob, map[string]string{
@@ -132,6 +137,28 @@ func (m *Middlewares) AddJiadan() {
 			}
 		}
 	}
+}
+
+func ValidateCronInterval(spec string, minInterval time.Duration) error {
+	fields := strings.Fields(spec)
+	if len(fields) < 5 {
+		return fmt.Errorf("cron表达式无效")
+	}
+	minuteField := fields[0]
+	if minuteField == "*" {
+		return fmt.Errorf("分钟字段不能为*")
+	}
+	// Only handle step values like */N
+	if strings.HasPrefix(minuteField, "*/") {
+		n, err := strconv.Atoi(minuteField[2:])
+		if err != nil {
+			return fmt.Errorf("分钟字段无效: %v", err)
+		}
+		if time.Duration(n)*time.Minute < minInterval {
+			return fmt.Errorf("定时任务最小间隔不能小于 %v", minInterval)
+		}
+	}
+	return nil
 }
 
 func (j *JiadanSyncManager) SyncJob(ctx map[string]string) {

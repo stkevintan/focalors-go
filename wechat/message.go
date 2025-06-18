@@ -244,7 +244,7 @@ func (w *WechatMessage) GetTarget() string {
 }
 
 type MessageFlagSet struct {
-	flag.FlagSet
+	*flag.FlagSet
 	argStr string
 }
 
@@ -256,18 +256,18 @@ func (m *MessageFlagSet) SplitParse() error {
 	return m.FlagSet.Parse(args)
 }
 
-func (m *MessageFlagSet) Parse() error {
+func (m *MessageFlagSet) Parse() string {
 	if err := m.SplitParse(); err != nil {
 		if err.Error() == "flag: help requested" {
 			var usageBuf strings.Builder
 			m.SetOutput(&usageBuf)
 			m.Usage()
-			return fmt.Errorf("%s", usageBuf.String())
+			return usageBuf.String()
 		}
 		logger.Error("failed to parse command", slog.Any("error", err))
-		return fmt.Errorf("解析失败，发送`#%s -h` 获得帮助", m.Name())
+		return fmt.Sprintf("解析失败，发送`#%s -h` 获得帮助", m.Name())
 	}
-	return nil
+	return ""
 }
 
 func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
@@ -283,7 +283,7 @@ func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
 		return nil
 	}
 	return &MessageFlagSet{
-		FlagSet: *flag.NewFlagSet(name, flag.ContinueOnError),
+		FlagSet: flag.NewFlagSet(name, flag.ContinueOnError),
 		argStr:  content[len(cmdPrefix):],
 	}
 }
