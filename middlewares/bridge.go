@@ -88,6 +88,9 @@ func (m *Middlewares) AddBridge() {
 								Type: msgType,
 								Data: nodeMap["data"],
 							})
+							logger.Debug("Sending message to wechat", slog.Any("node", node), slog.Any("queue", queue))
+						} else {
+							logger.Error("Failed to get message type", slog.Any("node", node))
 						}
 					}
 				}
