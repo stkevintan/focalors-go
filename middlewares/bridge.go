@@ -53,9 +53,10 @@ func (m *Middlewares) AddBridge() {
 	m.y.AddMessageHandler(func(msg *yunzai.Response) bool {
 		queue := make([]yunzai.MessageContent, 0, len(msg.Content))
 		queue = append(queue, msg.Content...)
-		for len(queue) > 0 {
-			content := queue[0]
-			queue = queue[1:]
+		front := 0
+		for front < len(queue) {
+			content := queue[front]
+			front++
 			switch content.Type {
 			case "text":
 				// {"type":"text","data":false}
