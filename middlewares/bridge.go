@@ -51,26 +51,48 @@ func (m *Middlewares) AddBridge() {
 
 	// yunzai message => wechat
 	m.y.AddMessageHandler(func(msg *yunzai.Response) bool {
-		for _, content := range msg.Content {
-			if content.Type == "text" {
+		queue := make([]yunzai.MessageContent, 0, len(msg.Content))
+		queue = append(queue, msg.Content...)
+		for len(queue) > 0 {
+			content := queue[0]
+			queue = queue[1:]
+			switch content.Type {
+			case "text":
 				// {"type":"text","data":false}
-				content, ok := content.Data.(string)
+				textContent, ok := content.Data.(string)
 				if !ok {
 					logger.Error("Failed to convert content to string", slog.Any("content", content))
 					continue
 				}
-				content = strings.Trim(content, " \n")
-				if content != "" {
-					m.w.SendText(msg, content)
+				textContent = strings.Trim(textContent, " \n")
+				if textContent != "" {
+					m.w.SendText(msg, textContent)
 				}
-			}
-			if content.Type == "image" {
-				content, ok := content.Data.(string)
+			case "image":
+				imageContent, ok := content.Data.(string)
 				if !ok {
 					logger.Error("Failed to convert content to string", slog.Any("content", content))
 					continue
 				}
-				m.w.SendImage(msg, content)
+				m.w.SendImage(msg, imageContent)
+			case "node":
+				nodeContent, ok := content.Data.([]any)
+				if !ok {
+					logger.Error("Failed to convert content to []any", slog.Any("content", content))
+					continue
+				}
+				for _, node := range nodeContent {
+					if nodeMap, ok := node.(map[string]any); ok {
+						if msgType, ok := nodeMap["type"].(string); ok {
+							queue = append(queue, yunzai.MessageContent{
+								Type: msgType,
+								Data: nodeMap["data"],
+							})
+						}
+					}
+				}
+			default:
+				logger.Warn("Unsupported message type", slog.Any("content", content))
 			}
 		}
 		return false

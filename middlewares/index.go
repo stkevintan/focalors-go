@@ -47,6 +47,7 @@ func (m *Middlewares) Stop() {
 
 func (m *Middlewares) Start() {
 	m.AddLogMsg()
+	m.AddAdmin()
 	m.AddJiadan()
 	m.AddBridge()
 	m.AddAvatarCache()

@@ -243,6 +243,18 @@ func (w *WechatMessage) GetTarget() string {
 	return w.FromUserId
 }
 
+func (w *WechatMessage) IsGroup() bool {
+	return w.ChatType == ChatTypeGroup
+}
+
+func (w *WechatMessage) IsPrivate() bool {
+	return w.ChatType == ChatTypePrivate
+}
+
+func (w *WechatMessage) IsText() bool {
+	return w.MsgType == TextMessage
+}
+
 type MessageFlagSet struct {
 	*flag.FlagSet
 	argStr string

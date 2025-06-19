@@ -10,9 +10,7 @@ func (m *Middlewares) AddAvatarCache() {
 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 	m.w.AddMessageHandler(func(msg *wechat.WechatMessage) bool {
 		if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
-			res, err := m.w.GetContactDetails([]string{
-				msg.FromUserId,
-			}, []string{})
+			res, err := m.w.GetUserContactDetails(msg.FromUserId)
 			if err != nil {
 				logger.Error("Failed to get contact details", slog.Any("error", err))
 				return false
