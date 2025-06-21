@@ -154,6 +154,18 @@ func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
+type WechatTargetImpl struct {
+	Target string
+}
+
+func (w *WechatTargetImpl) GetTarget() string {
+	return w.Target
+}
+
+func NewTarget(target string) WechatTarget {
+	return &WechatTargetImpl{Target: target}
+}
+
 func (w *WechatClient) SendText(target WechatTarget, message ...string) error {
 	return w.SendTextBatch(NewMessageUnit(target, message...))
 }
