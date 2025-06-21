@@ -14,15 +14,12 @@ type SendMessage interface {
 	IsEmpty() bool
 }
 
-func (w *WechatClient) SendMessage(message SendMessage) (*ApiResult, error) {
+func (w *WechatClient) SendMessage(message SendMessage) error {
 	if message.IsEmpty() {
-		return nil, fmt.Errorf("message cannot be empty")
+		return fmt.Errorf("message cannot be empty")
 	}
-	res := &ApiResult{}
-	if _, err := w.doPostAPICall(message.GetUri(), message, res); err != nil {
-		return nil, err
-	}
-	return res, nil
+	w.sendChan <- message
+	return nil
 }
 
 // ============ Text Message ============
@@ -139,7 +136,7 @@ func NewMessageUnit2(target string, content ...string) *MessageUnit {
 	}
 }
 
-func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) (*ApiResult, error) {
+func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	flattenedContent := make([]TextMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -157,11 +154,11 @@ func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) (*ApiResult, erro
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
-func (w *WechatClient) SendText(target WechatTarget, message ...string) (*ApiResult, error) {
+func (w *WechatClient) SendText(target WechatTarget, message ...string) error {
 	return w.SendTextBatch(NewMessageUnit(target, message...))
 }
 
-func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) (*ApiResult, error) {
+func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
 	flattenedContent := make([]ImageMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -179,7 +176,7 @@ func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) (*ApiResult, err
 	return w.SendMessage(&ImageMessageModel{MsgItem: flattenedContent})
 }
 
-func (w *WechatClient) SendImage(target WechatTarget, message ...string) (*ApiResult, error) {
+func (w *WechatClient) SendImage(target WechatTarget, message ...string) error {
 	return w.SendImageBatch(NewMessageUnit(target, message...))
 }
 

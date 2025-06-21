@@ -21,6 +21,7 @@ type WechatClient struct {
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
 	ws         *client.WebSocketClient[WechatMessage]
+	sendChan   chan SendMessage
 }
 
 type ApiResult struct {
@@ -59,6 +60,7 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
 		ws:         ws,
+		sendChan:   make(chan SendMessage, 5),
 	}
 }
 func readJson(conn *websocket.Conn, v any) error {
@@ -160,8 +162,24 @@ func convertMessage(msg *WechatSyncMessage) WechatMessage {
 	return message
 }
 
+func (w *WechatClient) processSend() {
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case message := <-w.sendChan:
+			res := &ApiResult{}
+			if _, err := w.doPostAPICall(message.GetUri(), message, res); err != nil {
+				logger.Error("Failed to send message", slog.Any("message", message), slog.Any("error", err))
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
+}
+
 func (w *WechatClient) Start() error {
 	w.initAccount()
+	go w.processSend()
 	return w.ws.Start()
 }
 
