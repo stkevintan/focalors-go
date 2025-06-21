@@ -42,12 +42,10 @@ func NewMiddlewares(ctx context.Context, cfg *config.Config, w *wechat.WechatCli
 }
 
 func (m *Middlewares) Stop() {
-	m.AddSkipStaleOnExit()
 	m.cron.Stop()
 }
 
 func (m *Middlewares) Start() {
-	m.AddSkipStale()
 	m.AddLogMsg()
 	m.AddAdmin()
 	m.AddJiadan()
