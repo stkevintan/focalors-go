@@ -15,7 +15,7 @@ type bridgeMiddleware struct {
 	avatarCache map[string]string
 }
 
-func NewBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *bridgeMiddleware {
+func newBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *bridgeMiddleware {
 	return &bridgeMiddleware{
 		MiddlewareBase: base,
 		y:              y,
@@ -33,7 +33,7 @@ func (b *bridgeMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() {
 		return false
 	}
-	b.UpdateAvatarCache(msg)
+	b.updateAvatarCache(msg)
 
 	userType := "group"
 	if msg.ChatType == wechat.ChatTypePrivate {
@@ -135,7 +135,7 @@ func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[strin
 	return nil
 }
 
-func (b *bridgeMiddleware) UpdateAvatarCache(msg *wechat.WechatMessage) {
+func (b *bridgeMiddleware) updateAvatarCache(msg *wechat.WechatMessage) {
 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
 		res, err := b.w.GetUserContactDetails(msg.FromUserId)

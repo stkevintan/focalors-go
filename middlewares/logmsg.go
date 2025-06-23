@@ -12,7 +12,7 @@ type logMsgMiddleware struct {
 	y *yunzai.YunzaiClient
 }
 
-func NewLogMsgMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *logMsgMiddleware {
+func newLogMsgMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *logMsgMiddleware {
 	return &logMsgMiddleware{
 		MiddlewareBase: base,
 		y:              y,

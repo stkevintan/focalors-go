@@ -13,15 +13,15 @@ import (
 	"resty.dev/v3"
 )
 
-type JiadanMiddleware struct {
+type jiadanMiddleware struct {
 	*MiddlewareBase
 	client *resty.Client
 	Images chan *wechat.MessageUnit
-	cron   *CronUtil
+	cron   *CronTask
 }
 
-func NewJiadanMiddleware(base *MiddlewareBase, cron *CronUtil) *JiadanMiddleware {
-	return &JiadanMiddleware{
+func newJiadanMiddleware(base *MiddlewareBase, cron *CronTask) *jiadanMiddleware {
+	return &jiadanMiddleware{
 		MiddlewareBase: base,
 		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
 		Images:         make(chan *wechat.MessageUnit, 20),
@@ -29,7 +29,7 @@ func NewJiadanMiddleware(base *MiddlewareBase, cron *CronUtil) *JiadanMiddleware
 	}
 }
 
-func (j *JiadanMiddleware) Start() {
+func (j *jiadanMiddleware) Start() {
 	j.MiddlewareBase.OnStart()
 	// start a goroutine to send images
 	go func() {
@@ -56,12 +56,12 @@ func (j *JiadanMiddleware) Start() {
 	}
 }
 
-func (j *JiadanMiddleware) Stop() {
+func (j *jiadanMiddleware) Stop() {
 	j.MiddlewareBase.OnStop()
 	close(j.Images)
 }
 
-func (j *JiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	if fs := msg.ToFlagSet("煎蛋"); fs != nil {
 		var top int
 		var cron string
@@ -129,7 +129,7 @@ func (j *JiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (j *JiadanMiddleware) SyncJob(ctx map[string]string) {
+func (j *jiadanMiddleware) SyncJob(ctx map[string]string) {
 	target := ctx["target"]
 	topStr := ctx["top"]
 	top, _ := strconv.Atoi(topStr)
@@ -177,7 +177,7 @@ func useCDN(url string) string {
 	return fmt.Sprintf("https://img.toto.im/large/%s", file)
 }
 
-func (j *JiadanMiddleware) saveVisited(commentKey string, comment JiadanComment) {
+func (j *jiadanMiddleware) saveVisited(commentKey string, comment JiadanComment) {
 	parsedTime, err := time.Parse("2006-01-02 15:04:05", comment.CommentDate)
 	if err != nil {
 		logger.Warn("Failed to parse time", slog.String("time", comment.CommentDate), slog.Any("error", err))
@@ -187,7 +187,7 @@ func (j *JiadanMiddleware) saveVisited(commentKey string, comment JiadanComment)
 	j.redis.Set(commentKey, strings.Join(comment.Pics, ","), time.Until(parsedTime.AddDate(0, 0, 15)))
 }
 
-func (j *JiadanMiddleware) getJiadanTop(key string, top int, page int, syncMode bool) ([]string, error) {
+func (j *jiadanMiddleware) getJiadanTop(key string, top int, page int, syncMode bool) ([]string, error) {
 	commentUrl := "https://i.jandan.net/?oxwlxojflwblxbsapi=jandan.get_pic_comments"
 	if page > 0 {
 		commentUrl = fmt.Sprintf("%s&page=%d", commentUrl, page)
@@ -246,7 +246,7 @@ func (j *JiadanMiddleware) getJiadanTop(key string, top int, page int, syncMode 
 	return urls, nil
 }
 
-func (j *JiadanMiddleware) fetchJiadan(urls []string) ([]string, error) {
+func (j *jiadanMiddleware) fetchJiadan(urls []string) ([]string, error) {
 	base64Images := []string{}
 	for _, url := range urls {
 		logger.Debug("Downloading image", slog.String("url", url))

@@ -41,12 +41,12 @@ func (m *MiddlewareBase) OnStop() error {
 }
 
 type Middlewares struct {
-	cron       *CronUtil
+	cron       *CronTask
 	middleware []Middleware
 }
 
 func New(w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *db.Redis, cfg *config.Config) *Middlewares {
-	cron := NewCronUtil(redis)
+	cron := newCronTask(redis)
 	m := &MiddlewareBase{
 		cfg:   cfg,
 		w:     w,
@@ -55,10 +55,10 @@ func New(w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *db.Redis, cfg *c
 	return &Middlewares{
 		cron: cron,
 		middleware: []Middleware{
-			NewLogMsgMiddleware(m, y),
-			NewAdminMiddleware(m, cron),
-			NewJiadanMiddleware(m, cron),
-			NewBridgeMiddleware(m, y),
+			newLogMsgMiddleware(m, y),
+			newAdminMiddleware(m, cron),
+			newJiadanMiddleware(m, cron),
+			newBridgeMiddleware(m, y),
 		},
 	}
 }

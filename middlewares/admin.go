@@ -7,19 +7,19 @@ import (
 	"strings"
 )
 
-type AdminMiddleware struct {
+type adminMiddleware struct {
 	*MiddlewareBase
-	cron *CronUtil
+	cron *CronTask
 }
 
-func NewAdminMiddleware(base *MiddlewareBase, cron *CronUtil) *AdminMiddleware {
-	return &AdminMiddleware{
+func newAdminMiddleware(base *MiddlewareBase, cron *CronTask) *adminMiddleware {
+	return &adminMiddleware{
 		MiddlewareBase: base,
 		cron:           cron,
 	}
 }
 
-func (a *AdminMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() || msg.FromUserId != a.cfg.App.Admin {
 		return false
 	}
@@ -29,7 +29,7 @@ func (a *AdminMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (a *AdminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 	tasks := a.cron.TaskEntries()
 	if len(tasks) == 0 {
 		a.w.SendText(msg, "没有定时任务")

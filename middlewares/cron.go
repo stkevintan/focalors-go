@@ -10,23 +10,23 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-type CronUtil struct {
+type CronTask struct {
 	cron      *cron.Cron
 	cronJobs  map[string]cron.EntryID
 	cronMutex sync.Mutex
 	redis     *db.Redis
 }
 
-func (m *CronUtil) Start() {
+func (m *CronTask) Start() {
 	m.cron.Start()
 }
 
-func (m *CronUtil) Stop() {
+func (m *CronTask) Stop() {
 	m.cron.Stop()
 }
 
-func NewCronUtil(redis *db.Redis) *CronUtil {
-	return &CronUtil{
+func newCronTask(redis *db.Redis) *CronTask {
+	return &CronTask{
 		cron:     cron.New(),
 		cronJobs: make(map[string]cron.EntryID),
 		redis:    redis,
@@ -37,7 +37,7 @@ func getCronKey(name string) string {
 	return fmt.Sprintf("cron:job:%s", name)
 }
 
-func (m *CronUtil) AddCronJob(name string, job func(params map[string]string), params map[string]string) error {
+func (m *CronTask) AddCronJob(name string, job func(params map[string]string), params map[string]string) error {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 	spec := params["spec"]
@@ -62,7 +62,7 @@ func (m *CronUtil) AddCronJob(name string, job func(params map[string]string), p
 	return nil
 }
 
-func (m *CronUtil) RemoveCronJob(name string) {
+func (m *CronTask) RemoveCronJob(name string) {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 	if id, exists := m.cronJobs[name]; exists {
@@ -73,7 +73,7 @@ func (m *CronUtil) RemoveCronJob(name string) {
 	}
 }
 
-func (m *CronUtil) GetCronJobs(key string) (jobs []map[string]string) {
+func (m *CronTask) GetCronJobs(key string) (jobs []map[string]string) {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 
@@ -89,7 +89,7 @@ func (m *CronUtil) GetCronJobs(key string) (jobs []map[string]string) {
 	return
 }
 
-func (m *CronUtil) Entries() []cron.Entry {
+func (m *CronTask) Entries() []cron.Entry {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 	return m.cron.Entries()
@@ -103,7 +103,7 @@ type TaskEntry struct {
 	Type string
 }
 
-func (m *CronUtil) TaskEntries() []TaskEntry {
+func (m *CronTask) TaskEntries() []TaskEntry {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 
