@@ -7,36 +7,52 @@ import (
 	"log/slog"
 )
 
-func (m *Middlewares) AddLogMsg() {
-	m.y.AddMessageHandler(func(message *yunzai.Response) bool {
-		logger.Info("Received Yunzai message",
-			slog.String("BotId", message.BotSelfId),
-			slog.String("MsgId", message.MsgId),
-			slog.String("TargetId", message.TargetId),
-		)
-		for _, content := range message.Content {
-			logger.Info("ContentType", slog.String("Type", content.Type))
-			if content.Type == "image" && content.Data != nil {
-				if dataStr, ok := content.Data.(string); ok && len(dataStr) > 10 {
-					logger.Info("ContentData (image preview)", slog.String("Data", dataStr[:10]))
-				} else {
-					logger.Info("ContentData (image)", slog.Any("Data", content.Data))
-				}
-				continue
-			}
-			logger.Info("ContentData", slog.Any("Data", content.Data))
-		}
-		return false
-	})
+type logMsgMiddleware struct {
+	*MiddlewareBase
+	y *yunzai.YunzaiClient
+}
 
-	m.w.AddMessageHandler(func(message *wechat.WechatMessage) bool {
-		logger.Info("Received message",
-			slog.String("FromUserId", message.FromUserId),
-			slog.String("FromGroupId", message.FromGroupId),
-			slog.String("ToUserId", message.ToUserId),
-			slog.String("MsgType", fmt.Sprintf("%d", message.MsgType)),
-			slog.String("Content", message.PushContent),
-		)
-		return false
-	})
+func NewLogMsgMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *logMsgMiddleware {
+	return &logMsgMiddleware{
+		MiddlewareBase: base,
+		y:              y,
+	}
+}
+
+func (l *logMsgMiddleware) OnStart() error {
+	l.MiddlewareBase.OnStart()
+	l.y.AddMessageHandler(l.OnYunzaiMessage)
+	return nil
+}
+
+func (l *logMsgMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+	logger.Info("Received Wechat message",
+		slog.String("FromUserId", msg.FromUserId),
+		slog.String("FromGroupId", msg.FromGroupId),
+		slog.String("ToUserId", msg.ToUserId),
+		slog.String("MsgType", fmt.Sprintf("%d", msg.MsgType)),
+		slog.String("Content", msg.PushContent),
+	)
+	return false
+}
+
+func (l *logMsgMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
+	logger.Info("Received Yunzai message",
+		slog.String("BotId", msg.BotSelfId),
+		slog.String("MsgId", msg.MsgId),
+		slog.String("TargetId", msg.TargetId),
+	)
+	for _, content := range msg.Content {
+		logger.Info("ContentType", slog.String("Type", content.Type))
+		if content.Type == "image" && content.Data != nil {
+			if dataStr, ok := content.Data.(string); ok && len(dataStr) > 10 {
+				logger.Info("ContentData (image preview)", slog.String("Data", dataStr[:10]))
+			} else {
+				logger.Info("ContentData (image)", slog.Any("Data", content.Data))
+			}
+			continue
+		}
+		logger.Info("ContentData", slog.Any("Data", content.Data))
+	}
+	return false
 }

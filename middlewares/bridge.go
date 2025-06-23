@@ -1,137 +1,154 @@
 package middlewares
 
 import (
-	"errors"
 	"fmt"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
 	"log/slog"
 	"regexp"
 	"strings"
-
-	"github.com/redis/go-redis/v9"
 )
 
-func (m *Middlewares) AddBridge() {
-	var prefixRegex = regexp.MustCompile(`^[#*%]`)
+type bridgeMiddleware struct {
+	*MiddlewareBase
+	y           *yunzai.YunzaiClient
+	avatarCache map[string]string
+}
 
-	createSender := func(message *wechat.WechatMessage) map[string]any {
-		key := fmt.Sprintf("avatar:%s", message.FromUserId)
-		if avatar, ok := m.avatarCache[key]; ok {
-			return map[string]any{
-				"avatar": avatar,
+func NewBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *bridgeMiddleware {
+	return &bridgeMiddleware{
+		MiddlewareBase: base,
+		y:              y,
+		avatarCache:    make(map[string]string),
+	}
+}
+
+func (b *bridgeMiddleware) OnStart() error {
+	b.MiddlewareBase.OnStart()
+	b.y.AddMessageHandler(b.OnYunzaiMessage)
+	return nil
+}
+
+func (b *bridgeMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+	if !msg.IsCommand() {
+		return false
+	}
+	b.UpdateAvatarCache(msg)
+
+	userType := "group"
+	if msg.ChatType == wechat.ChatTypePrivate {
+		userType = "direct"
+	}
+
+	msg.Content = strings.TrimPrefix(msg.Content, "#!")
+
+	sent := yunzai.Request{
+		BotSelfId: "focalors",
+		MsgId:     fmt.Sprintf("%d", msg.MsgId),
+		UserId:    msg.FromUserId,
+		GroupId:   msg.FromGroupId,
+		UserPM:    0,
+		UserType:  userType,
+		Content: []yunzai.MessageContent{
+			{
+				Type: "text",
+				Data: msg.Content,
+			},
+		},
+		Sender: b.createSender(msg),
+	}
+	logger.Debug("Sending message to yunzai", slog.Any("request", sent))
+	b.y.Send(sent)
+	return false
+}
+
+func (b *bridgeMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
+	queue := make([]yunzai.MessageContent, 0, len(msg.Content))
+	queue = append(queue, msg.Content...)
+	front := 0
+	for front < len(queue) {
+		content := queue[front]
+		front++
+		switch content.Type {
+		case "text":
+			textContent, ok := content.Data.(string)
+			if !ok {
+				logger.Error("Failed to convert content to string", slog.Any("content", content))
+				continue
 			}
-		}
-		cmd := m.redis.Get(m.ctx, key)
-		err := cmd.Err()
-
-		if err != nil {
-			if errors.Is(err, redis.Nil) {
-				logger.Debug("Avatar not found in Redis", slog.String("key", key))
-			} else {
-				logger.Error("Failed to get avatar from Redis", slog.String("key", key), slog.Any("error", err))
+			textContent = strings.Trim(textContent, " \n")
+			if textContent != "" {
+				b.w.SendText(msg, textContent)
 			}
-			return nil
-		}
-
-		avatar, err := cmd.Result()
-		if err != nil {
-			logger.Error("Failed to get avatar result from Redis command", slog.String("key", key), slog.Any("error", err))
-			return nil
-		}
-
-		if avatar != "" {
-			m.avatarCache[key] = avatar // Update the cache
-			return map[string]any{
-				"avatar": avatar,
+		case "image":
+			imageContent, ok := content.Data.(string)
+			if !ok {
+				logger.Error("Failed to convert content to string", slog.Any("content", content))
+				continue
 			}
+			b.w.SendImage(msg, imageContent)
+		case "node":
+			nodeContent, ok := content.Data.([]any)
+			if !ok {
+				logger.Error("Failed to convert content to []any", slog.Any("content", content))
+				continue
+			}
+			for _, node := range nodeContent {
+				if nodeMap, ok := node.(map[string]any); ok {
+					if msgType, ok := nodeMap["type"].(string); ok {
+						queue = append(queue, yunzai.MessageContent{
+							Type: msgType,
+							Data: nodeMap["data"],
+						})
+						logger.Debug("Sending message to wechat", slog.Any("node", node), slog.Any("queue", queue))
+					} else {
+						logger.Error("Failed to get message type", slog.Any("node", node))
+					}
+				}
+			}
+		default:
+			logger.Warn("Unsupported message type", slog.Any("content", content))
 		}
+	}
+	return false
+}
+
+func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[string]any {
+	key := fmt.Sprintf("avatar:%s", message.FromUserId)
+	if avatar, ok := b.avatarCache[key]; ok {
+		return map[string]any{
+			"avatar": avatar,
+		}
+	}
+	avatar, err := b.redis.Get(key)
+	if err != nil {
+		logger.Error("Failed to get avatar result from Redis command", slog.String("key", key), slog.Any("error", err))
 		return nil
 	}
 
-	// yunzai message => wechat
-	m.y.AddMessageHandler(func(msg *yunzai.Response) bool {
-		queue := make([]yunzai.MessageContent, 0, len(msg.Content))
-		queue = append(queue, msg.Content...)
-		front := 0
-		for front < len(queue) {
-			content := queue[front]
-			front++
-			switch content.Type {
-			case "text":
-				// {"type":"text","data":false}
-				textContent, ok := content.Data.(string)
-				if !ok {
-					logger.Error("Failed to convert content to string", slog.Any("content", content))
-					continue
-				}
-				textContent = strings.Trim(textContent, " \n")
-				if textContent != "" {
-					m.w.SendText(msg, textContent)
-				}
-			case "image":
-				imageContent, ok := content.Data.(string)
-				if !ok {
-					logger.Error("Failed to convert content to string", slog.Any("content", content))
-					continue
-				}
-				m.w.SendImage(msg, imageContent)
-			case "node":
-				nodeContent, ok := content.Data.([]any)
-				if !ok {
-					logger.Error("Failed to convert content to []any", slog.Any("content", content))
-					continue
-				}
-				for _, node := range nodeContent {
-					if nodeMap, ok := node.(map[string]any); ok {
-						if msgType, ok := nodeMap["type"].(string); ok {
-							queue = append(queue, yunzai.MessageContent{
-								Type: msgType,
-								Data: nodeMap["data"],
-							})
-							logger.Debug("Sending message to wechat", slog.Any("node", node), slog.Any("queue", queue))
-						} else {
-							logger.Error("Failed to get message type", slog.Any("node", node))
-						}
-					}
-				}
-			default:
-				logger.Warn("Unsupported message type", slog.Any("content", content))
-			}
+	if avatar != "" {
+		b.avatarCache[key] = avatar // Update the cache
+		return map[string]any{
+			"avatar": avatar,
 		}
-		return false
-	})
+	}
+	return nil
+}
 
-	// wechat message => yunzai
-	m.w.AddMessageHandler(
-		func(message *wechat.WechatMessage) bool {
-			if message.MsgType == wechat.TextMessage && prefixRegex.MatchString(message.Content) {
-				userType := "group"
-				if message.ChatType == wechat.ChatTypePrivate {
-					userType = "direct"
-				}
-
-				message.Content = strings.TrimPrefix(message.Content, "#!")
-
-				sent := yunzai.Request{
-					BotSelfId: "focalors",
-					MsgId:     fmt.Sprintf("%d", message.MsgId),
-					UserId:    message.FromUserId,
-					GroupId:   message.FromGroupId,
-					UserPM:    0,
-					UserType:  userType,
-					Content: []yunzai.MessageContent{
-						{
-							Type: "text",
-							Data: message.Content,
-						},
-					},
-					Sender: createSender(message),
-				}
-				logger.Debug("Sending message to yunzai", slog.Any("request", sent))
-				m.y.Send(sent)
-			}
-			return false
-		})
-
+func (b *bridgeMiddleware) UpdateAvatarCache(msg *wechat.WechatMessage) {
+	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
+	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
+		res, err := b.w.GetUserContactDetails(msg.FromUserId)
+		if err != nil {
+			logger.Error("Failed to get contact details", slog.Any("error", err))
+			return
+		}
+		for _, contact := range res.Data.ContactList {
+			headUrl := contact.SmallHeadImgUrl
+			key := "avatar:" + contact.UserName.Str
+			b.avatarCache[key] = headUrl
+			b.redis.Set(key, headUrl, 0)
+		}
+		b.w.SendText(msg, "头像已更新")
+	}
 }

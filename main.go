@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"focalors-go/config"
+	"focalors-go/db"
 	"focalors-go/middlewares"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
@@ -15,8 +16,6 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-
-	"github.com/redis/go-redis/v9"
 )
 
 // Version information (can be overridden at build time)
@@ -91,16 +90,12 @@ func main() {
 		cancel() // Cancel the context to signal all components to stop
 	}()
 	// redis
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
-	defer redisClient.Close()
+	redis := db.NewRedis(ctx, &cfg.Redis)
+	defer redis.Close()
 
 	y := yunzai.NewYunzai(ctx, cfg)
 	w := wechat.NewWechat(ctx, cfg)
-	m := middlewares.NewMiddlewares(ctx, cfg, w, y, redisClient)
+	m := middlewares.New(w, y, redis, cfg)
 	m.Start()
 	defer m.Stop()
 	select {

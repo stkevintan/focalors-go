@@ -1,108 +1,87 @@
 package middlewares
 
 import (
-	"context"
 	"fmt"
 	"focalors-go/config"
+	"focalors-go/db"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
-	"sync"
-
-	"github.com/redis/go-redis/v9"
-	"github.com/robfig/cron/v3"
+	"log/slog"
 )
 
 var logger = slogger.New("middlewares")
 
-type Middlewares struct {
-	ctx         context.Context
-	cfg         *config.Config
-	w           *wechat.WechatClient
-	y           *yunzai.YunzaiClient
-	redis       *redis.Client
-	avatarCache map[string]string
-	// cron
-	cron      *cron.Cron
-	cronJobs  map[string]cron.EntryID
-	cronMutex sync.Mutex
+type MiddlewareBase struct {
+	cfg   *config.Config
+	w     *wechat.WechatClient
+	redis *db.Redis
 }
 
-func NewMiddlewares(ctx context.Context, cfg *config.Config, w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *redis.Client) *Middlewares {
-	return &Middlewares{
-		ctx:         ctx,
-		cfg:         cfg,
-		w:           w,
-		y:           y,
-		redis:       redis,
-		cron:        cron.New(),
-		cronJobs:    map[string]cron.EntryID{},
-		avatarCache: map[string]string{},
+type Middleware interface {
+	OnWechatMessage(msg *wechat.WechatMessage) bool
+	OnStart() error
+	OnStop() error
+}
+
+func (m *MiddlewareBase) OnWechatMessage(msg *wechat.WechatMessage) bool {
+	return false
+}
+
+func (m *MiddlewareBase) OnYunzaiMessage(msg *yunzai.Response) bool {
+	return false
+}
+
+func (m *MiddlewareBase) OnStart() error {
+	m.w.AddMessageHandler(m.OnWechatMessage)
+	return nil
+}
+func (m *MiddlewareBase) OnStop() error {
+	return nil
+}
+
+type Middlewares struct {
+	cron       *CronUtil
+	middleware []Middleware
+}
+
+func New(w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *db.Redis, cfg *config.Config) *Middlewares {
+	cron := NewCronUtil(redis)
+	m := &MiddlewareBase{
+		cfg:   cfg,
+		w:     w,
+		redis: redis,
 	}
+	return &Middlewares{
+		cron: cron,
+		middleware: []Middleware{
+			NewLogMsgMiddleware(m, y),
+			NewAdminMiddleware(m, cron),
+			NewJiadanMiddleware(m, cron),
+			NewBridgeMiddleware(m, y),
+		},
+	}
+}
+
+func (m *Middlewares) Start() {
+	for _, mw := range m.middleware {
+		if err := mw.OnStart(); err != nil {
+			logger.Error("Failed to start middleware", slog.Any("error", err))
+		} else {
+			logger.Info("Middleware started successfully", slog.String("type", fmt.Sprintf("%T", mw)))
+		}
+	}
+	m.cron.Start()
 }
 
 func (m *Middlewares) Stop() {
 	m.cron.Stop()
-}
 
-func (m *Middlewares) Start() {
-	m.AddLogMsg()
-	m.AddAdmin()
-	m.AddJiadan()
-	m.AddBridge()
-	m.AddAvatarCache()
-	m.cron.Start()
-}
-
-func getCronKey(name string) string {
-	return fmt.Sprintf("cron:job:%s", name)
-}
-
-func (m *Middlewares) AddCronJob(name string, job func(params map[string]string), params map[string]string) error {
-	m.cronMutex.Lock()
-	defer m.cronMutex.Unlock()
-	spec := params["spec"]
-	if spec == "" {
-		spec = m.cfg.Jiadan.SyncCron
+	for _, mw := range m.middleware {
+		if err := mw.OnStop(); err != nil {
+			logger.Error("Failed to stop middleware", slog.Any("error", err))
+		} else {
+			logger.Info("Middleware stopped successfully", slog.String("type", fmt.Sprintf("%T", mw)))
+		}
 	}
-
-	id, err := m.cron.AddFunc(spec, func() {
-		job(params)
-	})
-	if err != nil {
-		return err
-	}
-	// delete previous job if exists
-	if id, exists := m.cronJobs[name]; exists {
-		// remove existing job
-		m.cron.Remove(id)
-	}
-	m.cronJobs[name] = id
-	key := getCronKey(name)
-	m.redis.HSet(m.ctx, key, params)
-	return nil
-}
-
-func (m *Middlewares) RemoveCronJob(name string) {
-	m.cronMutex.Lock()
-	defer m.cronMutex.Unlock()
-	if id, exists := m.cronJobs[name]; exists {
-		m.cron.Remove(id)
-		delete(m.cronJobs, name)
-		key := getCronKey(name)
-		m.redis.Del(m.ctx, key)
-	}
-}
-
-func (m *Middlewares) GetCronJobs(key string) (jobs []map[string]string) {
-	m.cronMutex.Lock()
-	defer m.cronMutex.Unlock()
-
-	// iterate all the keys with "cron:job:{key}"
-	keys := m.redis.Keys(m.ctx, getCronKey(key)).Val()
-	for _, key := range keys {
-		val := m.redis.HGetAll(m.ctx, key).Val()
-		jobs = append(jobs, val)
-	}
-	return
 }

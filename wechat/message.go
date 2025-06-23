@@ -264,6 +264,10 @@ func (w *WechatMessage) IsText() bool {
 	return w.MsgType == TextMessage
 }
 
+func (w *WechatMessage) IsCommand() bool {
+	return w.IsText() && strings.HasPrefix(w.Content, "#")
+}
+
 type MessageFlagSet struct {
 	*flag.FlagSet
 	argStr string
