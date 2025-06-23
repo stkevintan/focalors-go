@@ -1,9 +1,11 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
 	"focalors-go/config"
 	"focalors-go/db"
+	"focalors-go/scheduler"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
@@ -13,9 +15,8 @@ import (
 var logger = slogger.New("middlewares")
 
 type MiddlewareBase struct {
-	cfg   *config.Config
-	w     *wechat.WechatClient
-	redis *db.Redis
+	*wechat.WechatClient
+	cfg *config.Config
 }
 
 type Middleware interface {
@@ -33,7 +34,7 @@ func (m *MiddlewareBase) OnYunzaiMessage(msg *yunzai.Response) bool {
 }
 
 func (m *MiddlewareBase) OnStart() error {
-	m.w.AddMessageHandler(m.OnWechatMessage)
+	m.AddMessageHandler(m.OnWechatMessage)
 	return nil
 }
 func (m *MiddlewareBase) OnStop() error {
@@ -41,24 +42,26 @@ func (m *MiddlewareBase) OnStop() error {
 }
 
 type Middlewares struct {
-	cron       *CronTask
+	cron       *scheduler.CronTask
 	middleware []Middleware
+	redis      *db.Redis
 }
 
-func New(w *wechat.WechatClient, y *yunzai.YunzaiClient, redis *db.Redis, cfg *config.Config) *Middlewares {
-	cron := newCronTask(redis)
+func New(ctx context.Context, w *wechat.WechatClient, y *yunzai.YunzaiClient, cfg *config.Config) *Middlewares {
+	redis := db.NewRedis(ctx, &cfg.Redis)
+	cron := scheduler.NewCronTask(redis)
 	m := &MiddlewareBase{
-		cfg:   cfg,
-		w:     w,
-		redis: redis,
+		cfg:          cfg,
+		WechatClient: w,
 	}
 	return &Middlewares{
-		cron: cron,
+		cron:  cron,
+		redis: redis,
 		middleware: []Middleware{
 			newLogMsgMiddleware(m, y),
 			newAdminMiddleware(m, cron),
-			newJiadanMiddleware(m, cron),
-			newBridgeMiddleware(m, y),
+			newJiadanMiddleware(m, cron, redis),
+			newBridgeMiddleware(m, y, redis),
 		},
 	}
 }
@@ -76,7 +79,7 @@ func (m *Middlewares) Start() {
 
 func (m *Middlewares) Stop() {
 	m.cron.Stop()
-
+	m.redis.Close()
 	for _, mw := range m.middleware {
 		if err := mw.OnStop(); err != nil {
 			logger.Error("Failed to stop middleware", slog.Any("error", err))

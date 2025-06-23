@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"fmt"
+	"focalors-go/db"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
 	"log/slog"
@@ -12,14 +13,16 @@ import (
 type bridgeMiddleware struct {
 	*MiddlewareBase
 	y           *yunzai.YunzaiClient
+	redis       *db.Redis
 	avatarCache map[string]string
 }
 
-func newBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *bridgeMiddleware {
+func newBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient, redis *db.Redis) *bridgeMiddleware {
 	return &bridgeMiddleware{
 		MiddlewareBase: base,
 		y:              y,
 		avatarCache:    make(map[string]string),
+		redis:          redis,
 	}
 }
 
@@ -78,7 +81,7 @@ func (b *bridgeMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
 			}
 			textContent = strings.Trim(textContent, " \n")
 			if textContent != "" {
-				b.w.SendText(msg, textContent)
+				b.SendText(msg, textContent)
 			}
 		case "image":
 			imageContent, ok := content.Data.(string)
@@ -86,7 +89,7 @@ func (b *bridgeMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
 				logger.Error("Failed to convert content to string", slog.Any("content", content))
 				continue
 			}
-			b.w.SendImage(msg, imageContent)
+			b.SendImage(msg, imageContent)
 		case "node":
 			nodeContent, ok := content.Data.([]any)
 			if !ok {
@@ -138,7 +141,7 @@ func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[strin
 func (b *bridgeMiddleware) updateAvatarCache(msg *wechat.WechatMessage) {
 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
-		res, err := b.w.GetUserContactDetails(msg.FromUserId)
+		res, err := b.GetUserContactDetails(msg.FromUserId)
 		if err != nil {
 			logger.Error("Failed to get contact details", slog.Any("error", err))
 			return
@@ -149,6 +152,6 @@ func (b *bridgeMiddleware) updateAvatarCache(msg *wechat.WechatMessage) {
 			b.avatarCache[key] = headUrl
 			b.redis.Set(key, headUrl, 0)
 		}
-		b.w.SendText(msg, "头像已更新")
+		b.SendText(msg, "头像已更新")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"focalors-go/config"
-	"focalors-go/db"
 	"focalors-go/middlewares"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
@@ -89,13 +88,10 @@ func main() {
 		logger.Info("Initiating graceful shutdown...")
 		cancel() // Cancel the context to signal all components to stop
 	}()
-	// redis
-	redis := db.NewRedis(ctx, &cfg.Redis)
-	defer redis.Close()
 
 	y := yunzai.NewYunzai(ctx, cfg)
 	w := wechat.NewWechat(ctx, cfg)
-	m := middlewares.New(w, y, redis, cfg)
+	m := middlewares.New(ctx, w, y, cfg)
 	m.Start()
 	defer m.Stop()
 	select {
@@ -109,16 +105,18 @@ func main() {
 }
 
 type Service interface {
-	Start() error
-	Stop()
+	// Run must be blocked until the service is stopped
+	Run() error
+	// Dispose is called when the service is stopped
+	Dispose()
 }
 
 func runServiceAsync(services ...Service) <-chan error {
 	errChan := make(chan error, len(services))
 	for _, service := range services {
 		go func(service Service) {
-			defer service.Stop()
-			if err := service.Start(); err != nil {
+			defer service.Dispose()
+			if err := service.Run(); err != nil {
 				errChan <- err
 			}
 		}(service)

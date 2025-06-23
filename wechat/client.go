@@ -177,13 +177,13 @@ func (w *WechatClient) processSend() {
 	}
 }
 
-func (w *WechatClient) Start() error {
+func (w *WechatClient) Run() error {
 	w.initAccount()
 	go w.processSend()
-	return w.ws.Start()
+	return w.ws.Run()
 }
 
-func (w *WechatClient) Stop() {
+func (w *WechatClient) Dispose() {
 	w.ws.Close()
 }
 

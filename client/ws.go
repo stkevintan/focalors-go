@@ -131,7 +131,7 @@ func (c *WebSocketClient[Message]) Close() {
 	logger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
 }
 
-func (c *WebSocketClient[Message]) Start() error {
+func (c *WebSocketClient[Message]) Run() error {
 	c.wg.Add(1)
 	go c.processMessages()
 	return c.Listen()

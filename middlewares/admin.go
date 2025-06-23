@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"fmt"
+	"focalors-go/scheduler"
 	"focalors-go/wechat"
 	"log/slog"
 	"strings"
@@ -9,10 +10,10 @@ import (
 
 type adminMiddleware struct {
 	*MiddlewareBase
-	cron *CronTask
+	cron *scheduler.CronTask
 }
 
-func newAdminMiddleware(base *MiddlewareBase, cron *CronTask) *adminMiddleware {
+func newAdminMiddleware(base *MiddlewareBase, cron *scheduler.CronTask) *adminMiddleware {
 	return &adminMiddleware{
 		MiddlewareBase: base,
 		cron:           cron,
@@ -32,7 +33,7 @@ func (a *adminMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 	tasks := a.cron.TaskEntries()
 	if len(tasks) == 0 {
-		a.w.SendText(msg, "没有定时任务")
+		a.SendText(msg, "没有定时任务")
 		return true
 	}
 	var nicknameMap = make(map[string]string)
@@ -40,7 +41,7 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 	for _, entry := range tasks {
 		wxids = append(wxids, entry.Wxid)
 	}
-	contacts, err := a.w.GetContactDetails(wxids...)
+	contacts, err := a.GetContactDetails(wxids...)
 	if err != nil {
 		logger.Warn("Failed to get contact details", slog.Any("error", err))
 	} else {
@@ -62,6 +63,6 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 		text.WriteString(fmt.Sprintf("下次执行: %s \n", task.Next.Format("2006-01-02 15:04:05")))
 		text.WriteString("\n")
 	}
-	a.w.SendText(msg, text.String())
+	a.SendText(msg, text.String())
 	return true
 }

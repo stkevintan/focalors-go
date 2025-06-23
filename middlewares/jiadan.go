@@ -3,6 +3,8 @@ package middlewares
 import (
 	"encoding/base64"
 	"fmt"
+	"focalors-go/db"
+	"focalors-go/scheduler"
 	"focalors-go/wechat"
 	"log/slog"
 	"path"
@@ -17,15 +19,17 @@ type jiadanMiddleware struct {
 	*MiddlewareBase
 	client *resty.Client
 	Images chan *wechat.MessageUnit
-	cron   *CronTask
+	cron   *scheduler.CronTask
+	redis  *db.Redis
 }
 
-func newJiadanMiddleware(base *MiddlewareBase, cron *CronTask) *jiadanMiddleware {
+func newJiadanMiddleware(base *MiddlewareBase, cron *scheduler.CronTask, redis *db.Redis) *jiadanMiddleware {
 	return &jiadanMiddleware{
 		MiddlewareBase: base,
 		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
 		Images:         make(chan *wechat.MessageUnit, 20),
 		cron:           cron,
+		redis:          redis,
 	}
 }
 
@@ -34,7 +38,7 @@ func (j *jiadanMiddleware) Start() {
 	// start a goroutine to send images
 	go func() {
 		for msg := range j.Images {
-			j.w.SendImageBatch(msg)
+			j.SendImageBatch(msg)
 			time.Sleep(2 * time.Second) // 控制发送频率，避免过快
 		}
 	}()
@@ -68,11 +72,11 @@ func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
 		fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", j.cfg.Jiadan.MaxSyncCount))
 		if help := fs.Parse(); help != "" {
-			j.w.SendText(msg, help)
+			j.SendText(msg, help)
 			return true
 		}
 		if top < 1 || top > j.cfg.Jiadan.MaxSyncCount {
-			j.w.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", j.cfg.Jiadan.MaxSyncCount))
+			j.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", j.cfg.Jiadan.MaxSyncCount))
 			return true
 		}
 
@@ -81,35 +85,35 @@ func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 			urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
 			if err != nil {
 				logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
-				j.w.SendText(msg, "获取煎蛋失败")
+				j.SendText(msg, "获取煎蛋失败")
 				return true
 			}
 			if len(urls) == 0 {
-				j.w.SendText(msg, "没有找到新的煎蛋无聊图")
+				j.SendText(msg, "没有找到新的煎蛋无聊图")
 				return true
 			}
 
 			if base64Images, err := j.fetchJiadan(urls); err != nil {
 				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-				j.w.SendText(msg, "煎蛋无聊图下载失败")
+				j.SendText(msg, "煎蛋无聊图下载失败")
 			} else if len(base64Images) > 0 {
-				j.w.SendImage(msg, base64Images...)
+				j.SendImage(msg, base64Images...)
 			} else {
-				j.w.SendText(msg, "煎蛋无聊图下载失败")
+				j.SendText(msg, "煎蛋无聊图下载失败")
 			}
 			return true
 		}
 		// 关闭自动同步
 		if cron == "off" {
 			j.cron.RemoveCronJob(getKey(msg.GetTarget()))
-			j.w.SendText(msg, "煎蛋自动同步已经关闭")
+			j.SendText(msg, "煎蛋自动同步已经关闭")
 			return true
 		}
 		if cron == "default" {
 			cron = j.cfg.Jiadan.SyncCron
 		}
-		if err := ValidateCronInterval(cron, 10*time.Minute); err != nil {
-			j.w.SendText(msg, err.Error())
+		if err := scheduler.ValidateCronInterval(cron, 10*time.Minute); err != nil {
+			j.SendText(msg, err.Error())
 			return true
 		}
 		// 开启自动同步
@@ -120,9 +124,9 @@ func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 		})
 		if err != nil {
 			logger.Error("Failed to add cron job", slog.Any("error", err))
-			j.w.SendText(msg, "煎蛋自动同步开启失败, 请检查cron表达式")
+			j.SendText(msg, "煎蛋自动同步开启失败, 请检查cron表达式")
 		} else {
-			j.w.SendText(msg, "煎蛋自动同步已经开启")
+			j.SendText(msg, "煎蛋自动同步已经开启")
 		}
 		return true
 	}

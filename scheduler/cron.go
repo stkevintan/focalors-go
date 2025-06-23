@@ -1,4 +1,4 @@
-package middlewares
+package scheduler
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ func (m *CronTask) Stop() {
 	m.cron.Stop()
 }
 
-func newCronTask(redis *db.Redis) *CronTask {
+func NewCronTask(redis *db.Redis) *CronTask {
 	return &CronTask{
 		cron:     cron.New(),
 		cronJobs: make(map[string]cron.EntryID),

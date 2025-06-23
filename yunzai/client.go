@@ -22,11 +22,11 @@ func (y *YunzaiClient) AddMessageHandler(handler func(msg *Response) bool) {
 	y.ws.AddMessageHandler(handler)
 }
 
-func (y *YunzaiClient) Start() error {
-	return y.ws.Start()
+func (y *YunzaiClient) Run() error {
+	return y.ws.Run()
 }
 
-func (y *YunzaiClient) Stop() {
+func (y *YunzaiClient) Dispose() {
 	y.ws.Close()
 }
 
