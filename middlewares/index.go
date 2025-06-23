@@ -20,23 +20,24 @@ type MiddlewareBase struct {
 }
 
 type Middleware interface {
+	GetClient() *wechat.WechatClient
 	OnWechatMessage(msg *wechat.WechatMessage) bool
 	OnStart() error
 	OnStop() error
+}
+
+func (m *MiddlewareBase) GetClient() *wechat.WechatClient {
+	return m.WechatClient
 }
 
 func (m *MiddlewareBase) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (m *MiddlewareBase) OnYunzaiMessage(msg *yunzai.Response) bool {
-	return false
-}
-
 func (m *MiddlewareBase) OnStart() error {
-	m.AddMessageHandler(m.OnWechatMessage)
 	return nil
 }
+
 func (m *MiddlewareBase) OnStop() error {
 	return nil
 }
@@ -68,6 +69,8 @@ func New(ctx context.Context, w *wechat.WechatClient, y *yunzai.YunzaiClient, cf
 
 func (m *Middlewares) Start() {
 	for _, mw := range m.middleware {
+		// register message handler
+		mw.GetClient().AddMessageHandler(mw.OnWechatMessage)
 		if err := mw.OnStart(); err != nil {
 			logger.Error("Failed to start middleware", slog.Any("error", err))
 		} else {
