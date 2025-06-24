@@ -31,7 +31,7 @@ func NewClient[Message any](ctx context.Context, url string) *WebSocketClient[Me
 	return &WebSocketClient[Message]{
 		ctx:           ctx,
 		Url:           url,
-		messageBuffer: make(chan Message, 20),
+		messageBuffer: make(chan Message, 5), // Reduced from 20 to 5
 	}
 }
 

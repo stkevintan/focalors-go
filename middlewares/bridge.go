@@ -26,13 +26,12 @@ func newBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient, redis *db
 	}
 }
 
-func (b *bridgeMiddleware) OnStart() error {
-	b.MiddlewareBase.OnStart()
-	b.y.AddMessageHandler(b.OnYunzaiMessage)
+func (b *bridgeMiddleware) OnRegister() error {
+	b.y.AddMessageHandler(b.onYunzaiMessage)
 	return nil
 }
 
-func (b *bridgeMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (b *bridgeMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() {
 		return false
 	}
@@ -65,9 +64,10 @@ func (b *bridgeMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (b *bridgeMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
-	queue := make([]yunzai.MessageContent, 0, len(msg.Content))
-	queue = append(queue, msg.Content...)
+func (b *bridgeMiddleware) onYunzaiMessage(msg *yunzai.Response) bool {
+	// its rare to has extra message push from yunzai
+	queue := make([]yunzai.MessageContent, len(msg.Content))
+	copy(queue, msg.Content)
 	front := 0
 	for front < len(queue) {
 		content := queue[front]

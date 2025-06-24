@@ -20,7 +20,7 @@ func newAdminMiddleware(base *MiddlewareBase, cron *scheduler.CronTask) *adminMi
 	}
 }
 
-func (a *adminMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() || msg.FromUserId != a.cfg.App.Admin {
 		return false
 	}
@@ -36,7 +36,7 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 		a.SendText(msg, "没有定时任务")
 		return true
 	}
-	var nicknameMap = make(map[string]string)
+	var nicknameMap = make(map[string]string, len(tasks)) // Pre-allocate capacity
 	wxids := make([]string, 0, len(tasks))
 	for _, entry := range tasks {
 		wxids = append(wxids, entry.Wxid)
@@ -52,7 +52,9 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 			nicknameMap[contact.UserName.Str] = contact.NickName.Str
 		}
 	}
+	// Pre-allocate string builder with estimated capacity
 	var text strings.Builder
+	text.Grow(len(tasks) * 100)
 	for _, task := range tasks {
 		nickname := nicknameMap[task.Wxid]
 		if nickname == "" {

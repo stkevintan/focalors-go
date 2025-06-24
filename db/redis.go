@@ -72,16 +72,12 @@ func (r *Redis) Set(key string, value any, expiration time.Duration) error {
 	return nil
 }
 
-func (r *Redis) Exists(key string) (bool, error) {
+func (r *Redis) Exists(key string) (int64, error) {
 	cmd := r.RedisClient.Exists(r.RedisCtx, key)
 	if err := cmd.Err(); err != nil {
-		return false, err
+		return 0, err
 	}
-	exists, err := cmd.Result()
-	if err != nil {
-		return false, err
-	}
-	return exists > 0, nil
+	return cmd.Result()
 }
 
 func (r *Redis) Close() error {

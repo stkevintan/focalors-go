@@ -3,12 +3,16 @@ package scheduler
 import (
 	"fmt"
 	"focalors-go/db"
+	"focalors-go/slogger"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
 )
+
+var logger = slogger.New("scheduler")
 
 type CronTask struct {
 	cron      *cron.Cron
@@ -37,7 +41,7 @@ func getCronKey(name string) string {
 	return fmt.Sprintf("cron:job:%s", name)
 }
 
-func (m *CronTask) AddCronJob(name string, job func(params map[string]string), params map[string]string) error {
+func (m *CronTask) AddCronJob(name string, job func(params map[string]string) error, params map[string]string) error {
 	m.cronMutex.Lock()
 	defer m.cronMutex.Unlock()
 	spec := params["spec"]
@@ -46,7 +50,9 @@ func (m *CronTask) AddCronJob(name string, job func(params map[string]string), p
 	}
 
 	id, err := m.cron.AddFunc(spec, func() {
-		job(params)
+		if err := job(params); err != nil {
+			logger.Error("Cron job failed", slog.String("name", name), slog.Any("params", params), slog.Any("error", err))
+		}
 	})
 	if err != nil {
 		return err

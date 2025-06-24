@@ -1,7 +1,6 @@
 package middlewares
 
 import (
-	"context"
 	"fmt"
 	"focalors-go/config"
 	"focalors-go/db"
@@ -20,17 +19,13 @@ type MiddlewareBase struct {
 }
 
 type Middleware interface {
-	GetClient() *wechat.WechatClient
-	OnWechatMessage(msg *wechat.WechatMessage) bool
+	OnMessage(msg *wechat.WechatMessage) bool
+	OnRegister() error
 	OnStart() error
 	OnStop() error
 }
 
-func (m *MiddlewareBase) GetClient() *wechat.WechatClient {
-	return m.WechatClient
-}
-
-func (m *MiddlewareBase) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (m *MiddlewareBase) OnMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
@@ -42,52 +37,61 @@ func (m *MiddlewareBase) OnStop() error {
 	return nil
 }
 
-type Middlewares struct {
-	cron       *scheduler.CronTask
-	middleware []Middleware
-	redis      *db.Redis
+func (m *MiddlewareBase) OnRegister() error {
+	return nil
 }
 
-func New(ctx context.Context, w *wechat.WechatClient, y *yunzai.YunzaiClient, cfg *config.Config) *Middlewares {
-	redis := db.NewRedis(ctx, &cfg.Redis)
-	cron := scheduler.NewCronTask(redis)
+type Middlewares struct {
+	middlewares []Middleware
+}
+
+func New(
+	redis *db.Redis,
+	cron *scheduler.CronTask,
+	w *wechat.WechatClient,
+	y *yunzai.YunzaiClient,
+	cfg *config.Config,
+) *Middlewares {
 	m := &MiddlewareBase{
-		cfg:          cfg,
 		WechatClient: w,
+		cfg:          cfg,
+	}
+	middlewares := []Middleware{
+		newLogMsgMiddleware(m, y),
+		newAdminMiddleware(m, cron),
+		newJiadanMiddleware(m, cron, redis),
+		newBridgeMiddleware(m, y, redis),
+	}
+	// register
+	for _, mw := range middlewares {
+		w.AddMessageHandler(mw.OnMessage)
+		if err := mw.OnRegister(); err != nil {
+			logger.Error("Failed to register middleware", slog.Any("error", err))
+			continue
+		}
+		logger.Info("Middleware registered", slog.String("type", fmt.Sprintf("%T", mw)))
 	}
 	return &Middlewares{
-		cron:  cron,
-		redis: redis,
-		middleware: []Middleware{
-			newLogMsgMiddleware(m, y),
-			newAdminMiddleware(m, cron),
-			newJiadanMiddleware(m, cron, redis),
-			newBridgeMiddleware(m, y, redis),
-		},
+		middlewares: middlewares,
 	}
 }
 
 func (m *Middlewares) Start() {
-	for _, mw := range m.middleware {
-		// register message handler
-		mw.GetClient().AddMessageHandler(mw.OnWechatMessage)
+	for _, mw := range m.middlewares {
 		if err := mw.OnStart(); err != nil {
 			logger.Error("Failed to start middleware", slog.Any("error", err))
-		} else {
-			logger.Info("Middleware started successfully", slog.String("type", fmt.Sprintf("%T", mw)))
+			continue
 		}
+		logger.Info("Middleware started successfully", slog.String("type", fmt.Sprintf("%T", mw)))
 	}
-	m.cron.Start()
 }
 
 func (m *Middlewares) Stop() {
-	m.cron.Stop()
-	m.redis.Close()
-	for _, mw := range m.middleware {
-		if err := mw.OnStop(); err != nil {
+	for i := len(m.middlewares) - 1; i >= 0; i-- {
+		if err := m.middlewares[i].OnStop(); err != nil {
 			logger.Error("Failed to stop middleware", slog.Any("error", err))
-		} else {
-			logger.Info("Middleware stopped successfully", slog.String("type", fmt.Sprintf("%T", mw)))
+			continue
 		}
+		logger.Info("Middleware stopped successfully", slog.String("type", fmt.Sprintf("%T", m.middlewares[i])))
 	}
 }

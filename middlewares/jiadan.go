@@ -27,14 +27,13 @@ func newJiadanMiddleware(base *MiddlewareBase, cron *scheduler.CronTask, redis *
 	return &jiadanMiddleware{
 		MiddlewareBase: base,
 		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
-		Images:         make(chan *wechat.MessageUnit, 20),
+		Images:         make(chan *wechat.MessageUnit, 5),
 		cron:           cron,
 		redis:          redis,
 	}
 }
 
-func (j *jiadanMiddleware) Start() {
-	j.MiddlewareBase.OnStart()
+func (j *jiadanMiddleware) OnStart() error {
 	// start a goroutine to send images
 	go func() {
 		for msg := range j.Images {
@@ -58,14 +57,15 @@ func (j *jiadanMiddleware) Start() {
 			}
 		}
 	}
+	return nil
 }
 
-func (j *jiadanMiddleware) Stop() {
-	j.MiddlewareBase.OnStop()
+func (j *jiadanMiddleware) OnStop() error {
 	close(j.Images)
+	return nil
 }
 
-func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (j *jiadanMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	if fs := msg.ToFlagSet("煎蛋"); fs != nil {
 		var top int
 		var cron string
@@ -133,26 +133,31 @@ func (j *jiadanMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (j *jiadanMiddleware) SyncJob(ctx map[string]string) {
+func (j *jiadanMiddleware) SyncJob(ctx map[string]string) error {
 	target := ctx["target"]
 	topStr := ctx["top"]
 	top, _ := strconv.Atoi(topStr)
 	if top <= 0 {
 		top = 1
 	}
+	logger.Debug("Start jiadan sync job", slog.String("target", target), slog.Int("top", top))
 	urls, err := j.getJiadanTop(getKey(target), top, 0, true)
-	if err != nil || len(urls) == 0 {
-		logger.Debug("No jiadan update", slog.Any("error", err), slog.String("target", target))
-		return
+	if err != nil {
+		return fmt.Errorf("failed to get Jiadan URLs, %w", err)
+	}
+	if len(urls) == 0 {
+		logger.Debug("No new Jiadan images", slog.String("target", target))
+		return nil
 	}
 	if base64Images, err := j.fetchJiadan(urls); err != nil {
-		logger.Error("Failed to fetch Jiadan images", slog.Any("error", err), slog.String("target", target))
+		return fmt.Errorf("failed to fetch Jiadan images, %w", err)
 	} else if len(base64Images) > 0 {
 		j.Images <- &wechat.MessageUnit{
 			Target:  target,
 			Content: base64Images,
 		}
 	}
+	return nil
 }
 
 type JiadanComment struct {
@@ -214,11 +219,11 @@ func (j *jiadanMiddleware) getJiadanTop(key string, top int, page int, syncMode 
 			continue
 		}
 		commentKey := fmt.Sprintf("%s:%s", key, comment.CommentId)
-		if ok, _ := j.redis.Exists(commentKey); ok {
+		if ok, _ := j.redis.Exists(commentKey); ok > 0 {
 			if syncMode {
-				return nil, fmt.Errorf("comment already visited: %s", comment.CommentId)
+				return nil, fmt.Errorf("comment already visited: %s", commentKey)
 			}
-			logger.Debug("Comment already visited", slog.String("id", comment.CommentId))
+			logger.Debug("Comment already visited", slog.String("id", commentKey))
 			continue
 		}
 		hasImage := false

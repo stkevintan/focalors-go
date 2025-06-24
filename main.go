@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"focalors-go/config"
+	"focalors-go/db"
 	"focalors-go/middlewares"
+	"focalors-go/scheduler"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
@@ -89,11 +91,19 @@ func main() {
 		cancel() // Cancel the context to signal all components to stop
 	}()
 
+	redis := db.NewRedis(ctx, &cfg.Redis)
+	defer redis.Close()
+	cron := scheduler.NewCronTask(redis)
+	cron.Start()
+	defer cron.Stop()
+
 	y := yunzai.NewYunzai(ctx, cfg)
 	w := wechat.NewWechat(ctx, cfg)
-	m := middlewares.New(ctx, w, y, cfg)
+
+	m := middlewares.New(redis, cron, w, y, cfg)
 	m.Start()
 	defer m.Stop()
+
 	select {
 	case err := <-runServiceAsync(y, w):
 		logger.Error("Service failed", slog.Any("error", err))

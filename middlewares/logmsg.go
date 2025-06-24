@@ -19,13 +19,12 @@ func newLogMsgMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient) *logMsgMi
 	}
 }
 
-func (l *logMsgMiddleware) OnStart() error {
-	l.MiddlewareBase.OnStart()
+func (l *logMsgMiddleware) OnRegister() error {
 	l.y.AddMessageHandler(l.OnYunzaiMessage)
 	return nil
 }
 
-func (l *logMsgMiddleware) OnWechatMessage(msg *wechat.WechatMessage) bool {
+func (l *logMsgMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	logger.Info("Received Wechat message",
 		slog.String("FromUserId", msg.FromUserId),
 		slog.String("FromGroupId", msg.FromGroupId),
