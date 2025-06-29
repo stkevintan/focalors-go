@@ -7,7 +7,6 @@ import (
 	cfg "focalors-go/config"
 	"focalors-go/slogger"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -74,7 +73,7 @@ func readJson(conn *websocket.Conn, v any) error {
 	if err != nil {
 		return err
 	}
-	*target = convertMessage(msg)
+	*target = msg.Parse()
 	return nil
 }
 
@@ -129,37 +128,8 @@ func (w *WechatClient) initAccount() error {
 	}
 }
 
-func (w *WechatClient) AddMessageHandler(handler func(msg *WechatMessage) bool) {
+func (w *WechatClient) AddMessageHandler(handler func(ctx context.Context, msg *WechatMessage) bool) {
 	w.ws.AddMessageHandler(handler)
-}
-
-func convertMessage(msg *WechatSyncMessage) WechatMessage {
-	// map WechatSyncMessage to WechatMessage
-	message := WechatMessage{
-		WechatMessageBase: msg.WechatMessageBase,
-		FromUserId:        msg.FromUserId.Str,
-		ToUserId:          msg.ToUserId.Str,
-		Content:           msg.Content.Str,
-	}
-
-	if strings.HasSuffix(message.FromUserId, "@chatroom") {
-		message.ChatType = ChatTypeGroup
-	} else {
-		message.ChatType = ChatTypePrivate
-	}
-
-	if message.ChatType == ChatTypeGroup {
-		groupId := message.FromUserId
-		splited := strings.SplitN(message.Content, ":\n", 2)
-		if len(splited) == 2 {
-			message.FromGroupId = groupId
-			message.FromUserId = splited[0]
-			message.Content = splited[1]
-		} else {
-			logger.Warn("Failed to split group message", slog.String("Content", message.Content))
-		}
-	}
-	return message
 }
 
 func (w *WechatClient) processSend() {

@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
 	"focalors-go/config"
 	"focalors-go/db"
@@ -19,13 +20,13 @@ type MiddlewareBase struct {
 }
 
 type Middleware interface {
-	OnMessage(msg *wechat.WechatMessage) bool
+	OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool
 	OnRegister() error
 	OnStart() error
 	OnStop() error
 }
 
-func (m *MiddlewareBase) OnMessage(msg *wechat.WechatMessage) bool {
+func (m *MiddlewareBase) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
 	return false
 }
 
@@ -60,8 +61,19 @@ func New(
 		newLogMsgMiddleware(m, y),
 		newAdminMiddleware(m, cron),
 		newJiadanMiddleware(m, cron, redis),
+		newOpenAIMiddleware(m, redis),
 		newBridgeMiddleware(m, y, redis),
 	}
+	// remove nil middlewares
+	var i int
+	for _, mw := range middlewares {
+		if mw != nil {
+			middlewares[i] = mw
+			i++
+		}
+	}
+	middlewares = middlewares[:i]
+
 	// register
 	for _, mw := range middlewares {
 		w.AddMessageHandler(mw.OnMessage)

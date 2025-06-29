@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
@@ -24,7 +25,7 @@ func (l *logMsgMiddleware) OnRegister() error {
 	return nil
 }
 
-func (l *logMsgMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
+func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
 	logger.Info("Received Wechat message",
 		slog.String("FromUserId", msg.FromUserId),
 		slog.String("FromGroupId", msg.FromGroupId),
@@ -35,7 +36,7 @@ func (l *logMsgMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (l *logMsgMiddleware) OnYunzaiMessage(msg *yunzai.Response) bool {
+func (l *logMsgMiddleware) OnYunzaiMessage(ctx context.Context, msg *yunzai.Response) bool {
 	logger.Info("Received Yunzai message",
 		slog.String("BotId", msg.BotSelfId),
 		slog.String("MsgId", msg.MsgId),

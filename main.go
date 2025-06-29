@@ -91,7 +91,7 @@ func main() {
 		cancel() // Cancel the context to signal all components to stop
 	}()
 
-	redis := db.NewRedis(ctx, &cfg.Redis)
+	redis := db.NewRedis(ctx, &cfg.App.Redis)
 	defer redis.Close()
 	cron := scheduler.NewCronTask(redis)
 	cron.Start()

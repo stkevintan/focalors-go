@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
 	"focalors-go/scheduler"
 	"focalors-go/wechat"
@@ -20,7 +21,7 @@ func newAdminMiddleware(base *MiddlewareBase, cron *scheduler.CronTask) *adminMi
 	}
 }
 
-func (a *adminMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() || msg.FromUserId != a.cfg.App.Admin {
 		return false
 	}

@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"focalors-go/db"
@@ -10,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"resty.dev/v3"
@@ -17,31 +19,22 @@ import (
 
 type jiadanMiddleware struct {
 	*MiddlewareBase
-	client *resty.Client
-	Images chan *wechat.MessageUnit
-	cron   *scheduler.CronTask
-	redis  *db.Redis
+	client   *resty.Client
+	cron     *scheduler.CronTask
+	sendLock sync.Mutex
+	redis    *db.Redis
 }
 
 func newJiadanMiddleware(base *MiddlewareBase, cron *scheduler.CronTask, redis *db.Redis) *jiadanMiddleware {
 	return &jiadanMiddleware{
 		MiddlewareBase: base,
 		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
-		Images:         make(chan *wechat.MessageUnit, 5),
 		cron:           cron,
 		redis:          redis,
 	}
 }
 
 func (j *jiadanMiddleware) OnStart() error {
-	// start a goroutine to send images
-	go func() {
-		for msg := range j.Images {
-			j.SendImageBatch(msg)
-			time.Sleep(2 * time.Second) // 控制发送频率，避免过快
-		}
-	}()
-
 	// automatically start jiadan sync on startup
 	if params := j.cron.GetCronJobs(getKey("*")); len(params) > 0 {
 		for _, p := range params {
@@ -60,12 +53,7 @@ func (j *jiadanMiddleware) OnStart() error {
 	return nil
 }
 
-func (j *jiadanMiddleware) OnStop() error {
-	close(j.Images)
-	return nil
-}
-
-func (j *jiadanMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
+func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
 	if fs := msg.ToFlagSet("煎蛋"); fs != nil {
 		var top int
 		var cron string
@@ -109,8 +97,8 @@ func (j *jiadanMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 			j.SendText(msg, "煎蛋自动同步已经关闭")
 			return true
 		}
-		if cron == "default" {
-			cron = j.cfg.Jiadan.SyncCron
+		if cron == "default" || cron == "on" || cron == "auto" {
+			cron = j.cfg.App.SyncCron
 		}
 		if err := scheduler.ValidateCronInterval(cron, 10*time.Minute); err != nil {
 			j.SendText(msg, err.Error())
@@ -149,13 +137,19 @@ func (j *jiadanMiddleware) SyncJob(ctx map[string]string) error {
 		logger.Debug("No new Jiadan images", slog.String("target", target))
 		return nil
 	}
-	if base64Images, err := j.fetchJiadan(urls); err != nil {
+	base64Images, err := j.fetchJiadan(urls)
+	if err != nil {
 		return fmt.Errorf("failed to fetch Jiadan images, %w", err)
-	} else if len(base64Images) > 0 {
-		j.Images <- &wechat.MessageUnit{
+	}
+	if len(base64Images) > 0 {
+		msg := &wechat.MessageUnit{
 			Target:  target,
 			Content: base64Images,
 		}
+		j.sendLock.Lock()
+		defer j.sendLock.Unlock()
+		j.SendImageBatch(msg)
+		time.Sleep(2 * time.Second) // 控制发送频率，避免过快
 	}
 	return nil
 }

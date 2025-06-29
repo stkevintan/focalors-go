@@ -14,18 +14,21 @@ var logger = slogger.New("config")
 
 // Config holds all configuration for the application
 type Config struct {
-	App    AppConfig    `mapstructure:"app"`
-	Yunzai YunzaiConfig `mapstructure:"yunzai"`
-	Wechat WechatConfig `mapstructure:"wechat"`
-	Redis  RedisConfig  `mapstructure:"redis"`
-	Jiadan JiadanConfig `mapstructure:"jiadan"`
+	App     AppConfig     `mapstructure:"app"`
+	Yunzai  YunzaiConfig  `mapstructure:"yunzai"`
+	Wechat  WechatConfig  `mapstructure:"wechat"`
+	Jiadan  JiadanConfig  `mapstructure:"jiadan"`
+	OpenAI  OpenAIConfig  `mapstructure:"openai"`
+	Weather WeatherConfig `mapstructure:"weather"`
 }
 
 // AppConfig holds application-specific configuration
 type AppConfig struct {
-	Debug    bool   `mapstructure:"debug"`
-	LogLevel string `mapstructure:"logLevel"`
-	Admin    string `mapstructure:"admin"`
+	Debug    bool        `mapstructure:"debug"`
+	LogLevel string      `mapstructure:"logLevel"`
+	Admin    string      `mapstructure:"admin"`
+	SyncCron string      `mapstructure:"syncCron"`
+	Redis    RedisConfig `mapstructure:"redis"`
 }
 
 type RedisConfig struct {
@@ -44,9 +47,19 @@ type WechatConfig struct {
 	Token  string `mapstructure:"token"`
 }
 
+type OpenAIConfig struct {
+	APIKey     string `mapstructure:"apiKey"`
+	Endpoint   string `mapstructure:"endpoint"`
+	APIVersion string `mapstructure:"apiVersion"`
+	Deployment string `mapstructure:"deployment"`
+}
+
+type WeatherConfig struct {
+	Key string `mapstructure:"key"`
+}
+
 type JiadanConfig struct {
-	SyncCron     string `mapstructure:"syncCron"`
-	MaxSyncCount int    `mapstructure:"maxSyncCount"`
+	MaxSyncCount int `mapstructure:"maxSyncCount"`
 }
 
 // LoadConfig loads the configuration from the specified file
@@ -107,11 +120,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.debug", false)
 	v.SetDefault("app.logLevel", "info")
 	v.SetDefault("app.admin", "")
+	v.SetDefault("app.syncCron", "*/60 8-23 * * *")
 
 	// Redis defaults
-	v.SetDefault("redis.addr", "localhost:6379")
-	v.SetDefault("redis.password", "")
-	v.SetDefault("redis.db", 0)
+	v.SetDefault("app.redis.addr", "localhost:6379")
+	v.SetDefault("app.redis.password", "")
+	v.SetDefault("app.redis.db", 0)
 
 	// Yunzai defaults
 	v.SetDefault("yunzai.server", "ws://localhost:2536/GSUIDCore")
@@ -122,8 +136,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("wechat.token", "")
 
 	// Jiadan defaults
-	v.SetDefault("jiadan.syncCron", "*/30 8-23 * * *")
 	v.SetDefault("jiadan.maxSyncCount", 4)
+
+	v.SetDefault("openai.apiVersion", "2025-03-01-preview")
 }
 
 // createDefaultConfig creates a default configuration file if none exists

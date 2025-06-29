@@ -18,7 +18,7 @@ func NewYunzai(ctx context.Context, cfg *config.Config) *YunzaiClient {
 	}
 }
 
-func (y *YunzaiClient) AddMessageHandler(handler func(msg *Response) bool) {
+func (y *YunzaiClient) AddMessageHandler(handler func(ctx context.Context, msg *Response) bool) {
 	y.ws.AddMessageHandler(handler)
 }
 

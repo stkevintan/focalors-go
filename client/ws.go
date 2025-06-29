@@ -21,7 +21,7 @@ type WebSocketClient[Message any] struct {
 	Conn          *websocket.Conn
 	Url           string
 	readJSON      func(Conn *websocket.Conn, v interface{}) error
-	handlers      []func(msg *Message) bool
+	handlers      []func(ctx context.Context, msg *Message) bool
 	messageBuffer chan Message
 	wg            sync.WaitGroup
 }
@@ -40,7 +40,7 @@ func (c *WebSocketClient[Message]) SetReadJSON(readJSON func(Conn *websocket.Con
 }
 
 // thread unsafe, but we only call this before starting the client
-func (c *WebSocketClient[Message]) AddMessageHandler(handler func(msg *Message) bool) {
+func (c *WebSocketClient[Message]) AddMessageHandler(handler func(ctx context.Context, msg *Message) bool) {
 	c.handlers = append(c.handlers, handler)
 }
 
@@ -149,8 +149,9 @@ func (c *WebSocketClient[Message]) processMessages() {
 				logger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
 				return
 			}
+			// todo: limit timeout using context
 			for _, handler := range c.handlers {
-				if handler(&message) {
+				if handler(c.ctx, &message) {
 					break
 				}
 			}

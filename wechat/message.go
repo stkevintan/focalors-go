@@ -26,7 +26,7 @@ func (w *WechatClient) SendMessage(message SendMessage) error {
 type TextMessageItem struct {
 	ToUserName  string   // 接收者 wxid
 	TextContent string   // 文本类型消息时内容
-	MsgType     int      //1 Text 2 Image ...
+	MsgType     int      //1 Text 2 Image 49 Reply...
 	AtWxIDList  []string // 发送艾特消息时的 wxid 列表
 }
 
@@ -129,13 +129,6 @@ func NewMessageUnit(target WechatTarget, content ...string) *MessageUnit {
 	}
 }
 
-func NewMessageUnit2(target string, content ...string) *MessageUnit {
-	return &MessageUnit{
-		Target:  target,
-		Content: content,
-	}
-}
-
 func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	flattenedContent := make([]TextMessageItem, 0, len(messages))
 	for _, m := range messages {
@@ -202,13 +195,55 @@ type WechatImageMessageBuf struct {
 	Buffer string `json:"buffer"`
 }
 
-type MessageType int
+type MessageType uint32
+
+// const (
+// 	// MMAddMsgTypeText 消息类型：文本消息
+// 	MMAddMsgTypeText uint32 = 1
+// 	// MMAddMsgTypeImage 消息类型：图片消息
+// 	MMAddMsgTypeImage uint32 = 3
+// 	// MMAddMsgTypeCard 消息类型：名片
+// 	MMAddMsgTypeCard uint32 = 42
+// 	//MMAddMsgTypeMov 视频消息
+// 	MMAddMsgTypeMov uint32 = 47
+
+// 	// MMAddMsgTypeRefer 消息类型：引用
+// 	//MMAddMsgTypePic表情消息
+// 	MMAddMsgTypePic uint32 = 47
+
+// 	MMAddMsgTypeRefer uint32 = 49
+// 	//MMAddMsgTypeVoice 语音 视频
+// 	MMAddMsgTypeVoice uint32 = 50
+
+// 	// MMAddMsgTypeStatusNotify 消息类型：状态通知
+// 	MMAddMsgTypeStatusNotify uint32 = 51
+// 	// MMAddMsgTypeRevokemMsg 消息类型：撤回消息
+// 	MMAddMsgTypeRevokemMsg uint32 = 10002
+// 	//系统消息
+// 	MMAddMsgTypeSystemMsg = 10000
+// )
 
 const (
-	TextMessage  MessageType = 1
+	// 消息类型：文本消息
+	TextMessage MessageType = 1
+	// 消息类型：图片消息
 	ImageMessage MessageType = 3
+	//消息类型：名片
+	CardMessage MessageType = 42
+	//消息类型：表情
 	EmojiMessage MessageType = 47
-	AppMessage   MessageType = 49
+	// 消息类型：视频
+	MovMessage MessageType = 47
+	// 消息类型：引用
+	ReferMessage MessageType = 49
+	// 消息类型：语音 视频
+	VoiceMessage MessageType = 50
+	// 消息类型：状态通知
+	StatusNotifyMessage MessageType = 51
+	// 消息类型：撤回消息
+	RevokemMsgMessage MessageType = 10002
+	// 系统消息
+	SystemMsgMessage MessageType = 10000
 )
 
 type ChatType int
@@ -243,6 +278,7 @@ type WechatMessage struct {
 	FromGroupId string   `json:"from_group_id"`
 	ChatType    ChatType `json:"chat_type"`
 	Content     string   `json:"content"`
+	appmsg      map[string]interface{}
 }
 
 func (w *WechatMessage) GetTarget() string {
@@ -266,6 +302,35 @@ func (w *WechatMessage) IsText() bool {
 
 func (w *WechatMessage) IsCommand() bool {
 	return w.IsText() && strings.HasPrefix(w.Content, "#")
+}
+
+func (msg *WechatSyncMessage) Parse() WechatMessage {
+	// map WechatSyncMessage to WechatMessage
+	message := WechatMessage{
+		WechatMessageBase: msg.WechatMessageBase,
+		FromUserId:        msg.FromUserId.Str,
+		ToUserId:          msg.ToUserId.Str,
+		Content:           msg.Content.Str,
+	}
+
+	if strings.HasSuffix(message.FromUserId, "@chatroom") {
+		message.ChatType = ChatTypeGroup
+	} else {
+		message.ChatType = ChatTypePrivate
+	}
+
+	if message.ChatType == ChatTypeGroup {
+		groupId := message.FromUserId
+		splited := strings.SplitN(message.Content, ":\n", 2)
+		if len(splited) == 2 {
+			message.FromGroupId = groupId
+			message.FromUserId = splited[0]
+			message.Content = splited[1]
+		} else {
+			logger.Warn("Failed to split group message", slog.String("Content", message.Content))
+		}
+	}
+	return message
 }
 
 type MessageFlagSet struct {

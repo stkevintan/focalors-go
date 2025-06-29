@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"context"
 	"fmt"
 	"focalors-go/db"
 	"focalors-go/wechat"
@@ -31,7 +32,7 @@ func (b *bridgeMiddleware) OnRegister() error {
 	return nil
 }
 
-func (b *bridgeMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
+func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
 	if !msg.IsCommand() {
 		return false
 	}
@@ -64,7 +65,7 @@ func (b *bridgeMiddleware) OnMessage(msg *wechat.WechatMessage) bool {
 	return false
 }
 
-func (b *bridgeMiddleware) onYunzaiMessage(msg *yunzai.Response) bool {
+func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Response) bool {
 	// its rare to has extra message push from yunzai
 	queue := make([]yunzai.MessageContent, len(msg.Content))
 	copy(queue, msg.Content)
