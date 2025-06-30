@@ -91,17 +91,27 @@ func main() {
 		cancel() // Cancel the context to signal all components to stop
 	}()
 
+	y := yunzai.NewYunzai(ctx, cfg)
+	w := wechat.NewWechat(ctx, cfg)
 	redis := db.NewRedis(ctx, &cfg.App.Redis)
 	defer redis.Close()
 	cron := scheduler.NewCronTask(redis)
 	cron.Start()
 	defer cron.Stop()
 
-	y := yunzai.NewYunzai(ctx, cfg)
-	w := wechat.NewWechat(ctx, cfg)
+	m := middlewares.NewRootMiddleware(w, redis, cron, cfg)
+	m.AddMiddlewares(
+		middlewares.NewLogMsgMiddleware,
+		middlewares.NewAdminMiddleware,
+		middlewares.NewJiadanMiddleware,
+		middlewares.NewOpenAIMiddleware,
+		middlewares.NewBridgeMiddlewareFactory(y),
+	)
 
-	m := middlewares.New(redis, cron, w, y, cfg)
-	m.Start()
+	if err := m.Start(); err != nil {
+		logger.Error("Failed to start middleware", slog.Any("error", err))
+		return
+	}
 	defer m.Stop()
 
 	select {

@@ -3,7 +3,6 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/db"
 	"focalors-go/wechat"
 	"focalors-go/yunzai"
 	"log/slog"
@@ -12,22 +11,22 @@ import (
 )
 
 type bridgeMiddleware struct {
-	*MiddlewareBase
+	*middlewareBase
 	y           *yunzai.YunzaiClient
-	redis       *db.Redis
 	avatarCache map[string]string
 }
 
-func newBridgeMiddleware(base *MiddlewareBase, y *yunzai.YunzaiClient, redis *db.Redis) *bridgeMiddleware {
-	return &bridgeMiddleware{
-		MiddlewareBase: base,
-		y:              y,
-		avatarCache:    make(map[string]string),
-		redis:          redis,
+func NewBridgeMiddlewareFactory(y *yunzai.YunzaiClient) func(base *middlewareBase) Middleware {
+	return func(base *middlewareBase) Middleware {
+		return &bridgeMiddleware{
+			middlewareBase: base,
+			y:              y,
+			avatarCache:    make(map[string]string),
+		}
 	}
 }
 
-func (b *bridgeMiddleware) OnRegister() error {
+func (b *bridgeMiddleware) Start() error {
 	b.y.AddMessageHandler(b.onYunzaiMessage)
 	return nil
 }
@@ -65,7 +64,29 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 	return false
 }
 
+func (b *bridgeMiddleware) logYunzaiMessage(msg *yunzai.Response) bool {
+	logger.Info("Received Yunzai message",
+		slog.String("BotId", msg.BotSelfId),
+		slog.String("MsgId", msg.MsgId),
+		slog.String("TargetId", msg.TargetId),
+	)
+	for _, content := range msg.Content {
+		logger.Info("ContentType", slog.String("Type", content.Type))
+		if content.Type == "image" && content.Data != nil {
+			if dataStr, ok := content.Data.(string); ok && len(dataStr) > 10 {
+				logger.Info("ContentData (image preview)", slog.String("Data", dataStr[:10]))
+			} else {
+				logger.Info("ContentData (image)", slog.Any("Data", content.Data))
+			}
+			continue
+		}
+		logger.Info("ContentData", slog.Any("Data", content.Data))
+	}
+	return false
+}
+
 func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Response) bool {
+	b.logYunzaiMessage(msg)
 	// its rare to has extra message push from yunzai
 	queue := make([]yunzai.MessageContent, len(msg.Content))
 	copy(queue, msg.Content)

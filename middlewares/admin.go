@@ -3,21 +3,18 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/scheduler"
 	"focalors-go/wechat"
 	"log/slog"
 	"strings"
 )
 
 type adminMiddleware struct {
-	*MiddlewareBase
-	cron *scheduler.CronTask
+	*middlewareBase
 }
 
-func newAdminMiddleware(base *MiddlewareBase, cron *scheduler.CronTask) *adminMiddleware {
+func NewAdminMiddleware(base *middlewareBase) Middleware {
 	return &adminMiddleware{
-		MiddlewareBase: base,
-		cron:           cron,
+		middlewareBase: base,
 	}
 }
 

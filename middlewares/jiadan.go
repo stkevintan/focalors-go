@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"focalors-go/db"
 	"focalors-go/scheduler"
 	"focalors-go/wechat"
 	"log/slog"
@@ -18,23 +17,19 @@ import (
 )
 
 type jiadanMiddleware struct {
-	*MiddlewareBase
+	*middlewareBase
 	client   *resty.Client
-	cron     *scheduler.CronTask
 	sendLock sync.Mutex
-	redis    *db.Redis
 }
 
-func newJiadanMiddleware(base *MiddlewareBase, cron *scheduler.CronTask, redis *db.Redis) *jiadanMiddleware {
+func NewJiadanMiddleware(base *middlewareBase) Middleware {
 	return &jiadanMiddleware{
-		MiddlewareBase: base,
+		middlewareBase: base,
 		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
-		cron:           cron,
-		redis:          redis,
 	}
 }
 
-func (j *jiadanMiddleware) OnStart() error {
+func (j *jiadanMiddleware) Start() error {
 	// automatically start jiadan sync on startup
 	if params := j.cron.GetCronJobs(getKey("*")); len(params) > 0 {
 		for _, p := range params {

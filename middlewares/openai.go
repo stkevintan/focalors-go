@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"focalors-go/db"
 	"focalors-go/service"
 	"focalors-go/wechat"
 	"log/slog"
@@ -15,13 +14,12 @@ import (
 )
 
 type OpenAIMiddleware struct {
-	*MiddlewareBase
+	*middlewareBase
 	client  *openai.Client
-	redis   *db.Redis
 	weather *service.WeatherService
 }
 
-func newOpenAIMiddleware(base *MiddlewareBase, redis *db.Redis) *OpenAIMiddleware {
+func NewOpenAIMiddleware(base *middlewareBase) Middleware {
 	if base.cfg.OpenAI.APIKey == "" || base.cfg.OpenAI.Endpoint == "" {
 		return nil
 	}
@@ -32,9 +30,8 @@ func newOpenAIMiddleware(base *MiddlewareBase, redis *db.Redis) *OpenAIMiddlewar
 	)
 
 	return &OpenAIMiddleware{
-		MiddlewareBase: base,
+		middlewareBase: base,
 		client:         &client,
-		redis:          redis,
 		weather:        service.NewWeatherService(&base.cfg.Weather),
 	}
 }
