@@ -24,7 +24,7 @@ func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMess
 	}
 	if fs := msg.ToFlagSet("admin"); fs != nil {
 		var topic string
-		fs.StringVar(&topic, "s", "", "topic: cron, perm")
+		fs.StringVar(&topic, "s", "", "topic: cron, access")
 		if help := fs.Parse(); help != "" {
 			a.SendText(msg, help)
 			return true
@@ -32,7 +32,7 @@ func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMess
 		switch topic {
 		case "cron":
 			return a.onCronTask(msg)
-		case "perm":
+		case "access":
 			return a.onAdminMessage(msg)
 		default:
 			a.SendText(msg, "未知主题")
@@ -42,7 +42,7 @@ func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMess
 	return false
 }
 func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
-	targetAndPerms, err := a.access.ListTargetAndPerm()
+	targetAndPerms, err := a.access.ListAll()
 	if err != nil {
 		logger.Warn("Failed to list target and perm", slog.Any("error", err))
 		a.SendText(msg, "获取权限列表失败")
@@ -75,10 +75,14 @@ func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
 		} else {
 			nickname = fmt.Sprintf("%s(%s)", nickname, tp.Target)
 		}
-		text.WriteString(fmt.Sprintf("🔑 %s | %s | %s\n", nickname, tp.Perm.String(), tp.Perm))
+		text.WriteString(fmt.Sprintf("🔑 %s | %s\n", nickname, tp.Perm.String()))
 	}
 
-	a.SendText(msg, text.String())
+	response := text.String()
+	if response == "" {
+		response = "没有权限分配"
+	}
+	a.SendText(msg, response)
 	return true
 }
 

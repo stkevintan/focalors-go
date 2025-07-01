@@ -5,51 +5,53 @@ import (
 	"focalors-go/wechat"
 	"strconv"
 	"strings"
+
+	"github.com/redis/go-redis/v9"
 )
 
-type Perm int
+type Access int
 
 const (
-	GPTPerm = 1 << iota
+	GPTAccess = 1 << iota
 )
 
-var PermNameDict = map[string]Perm{
-	"gpt": GPTPerm,
+var AccessNameDict = map[string]Access{
+	"gpt": GPTAccess,
 }
 
 // String returns the string representation of the permission
-func (p Perm) String() string {
+func (p Access) String() string {
 	if p == 0 {
 		return "no"
 	}
 
-	// Handle multiple permissions
-	var perms []string
-	for name, perm := range PermNameDict {
-		if p&perm != 0 {
-			perms = append(perms, name)
+	// Handle multiple accesses
+	var accesses []string
+	for name, access := range AccessNameDict {
+		if p&access != 0 {
+			accesses = append(accesses, name)
 		}
 	}
 
-	if len(perms) > 0 {
-		return strings.Join(perms, "|")
+	if len(accesses) > 0 {
+		return strings.Join(accesses, "|")
 	}
 	return "unknown"
 }
 
-func NewPerm(permType string) Perm {
+func NewAccess(accessType string) Access {
 	// Handle multiple permissions separated by |
-	if strings.Contains(permType, "|") {
-		var result Perm
-		parts := strings.Split(permType, "|")
+	if strings.Contains(accessType, "|") {
+		var result Access
+		parts := strings.Split(accessType, "|")
 		for _, part := range parts {
-			result |= NewPerm(strings.TrimSpace(part))
+			result |= NewAccess(strings.TrimSpace(part))
 		}
 		return result
 	}
 
 	// Single permission conversion
-	normalized := strings.ToLower(strings.TrimSpace(permType))
+	normalized := strings.ToLower(strings.TrimSpace(accessType))
 
 	// Handle special cases
 	if normalized == "" || normalized == "no" || normalized == "none" {
@@ -57,7 +59,7 @@ func NewPerm(permType string) Perm {
 	}
 
 	// Look up in the dictionary
-	if perm, exists := PermNameDict[normalized]; exists {
+	if perm, exists := AccessNameDict[normalized]; exists {
 		return perm
 	}
 
@@ -82,24 +84,24 @@ func getKey(target string) string {
 	return "access:" + target
 }
 
-type TargetAndPerm struct {
+type AccessItem struct {
 	Target string
-	Perm   Perm
+	Perm   Access
 }
 
-func (a *AccessService) ListTargetAndPerm() ([]TargetAndPerm, error) {
+func (a *AccessService) ListAll() ([]AccessItem, error) {
 	keys, err := a.redis.Keys("access:*")
 	if err != nil {
 		return nil, err
 	}
-	var results []TargetAndPerm
+	var results []AccessItem
 	for _, key := range keys {
 		target := strings.TrimPrefix(key, "access:")
-		perm, err := a.GetPerm(wechat.NewTarget(target))
+		perm, err := a.GetAccess(wechat.NewTarget(target))
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, TargetAndPerm{
+		results = append(results, AccessItem{
 			Target: target,
 			Perm:   perm,
 		})
@@ -107,55 +109,59 @@ func (a *AccessService) ListTargetAndPerm() ([]TargetAndPerm, error) {
 	return results, nil
 }
 
-func (a *AccessService) GetPerm(target wechat.WechatTarget) (Perm, error) {
+func (a *AccessService) GetAccess(target wechat.WechatTarget) (Access, error) {
 	key := getKey(target.GetTarget())
 	stored, err := a.redis.Get(key)
+	// redis.Nil represents a missing key
+	if err == redis.Nil {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
 	mask, err := strconv.Atoi(stored)
-	return Perm(mask), err
+	return Access(mask), err
 }
 
-func (a *AccessService) SetPerm(target wechat.WechatTarget, perm Perm) error {
+func (a *AccessService) SetAccess(target wechat.WechatTarget, access Access) error {
 	if a.IsAdmin(target) {
 		return nil
 	}
 	key := getKey(target.GetTarget())
-	return a.redis.Set(key, strconv.Itoa(int(perm)), 0)
+	return a.redis.Set(key, strconv.Itoa(int(access)), 0)
 }
 
-func (a *AccessService) AddPerm(target wechat.WechatTarget, perm Perm) error {
+func (a *AccessService) AddAccess(target wechat.WechatTarget, access Access) error {
 	if a.IsAdmin(target) {
 		return nil
 	}
-	currentPerm, err := a.GetPerm(target)
+	currentAccess, err := a.GetAccess(target)
 	if err != nil {
 		return err
 	}
-	return a.SetPerm(target, currentPerm|perm)
+	return a.SetAccess(target, currentAccess|access)
 }
 
-func (a *AccessService) RemovePerm(target wechat.WechatTarget, perm Perm) error {
+func (a *AccessService) DelAccess(target wechat.WechatTarget, access Access) error {
 	if a.IsAdmin(target) {
 		return nil
 	}
-	currentPerm, err := a.GetPerm(target)
+	currentAccess, err := a.GetAccess(target)
 	if err != nil {
 		return err
 	}
-	return a.SetPerm(target, currentPerm&^perm)
+	return a.SetAccess(target, currentAccess&^access)
 }
 
-func (a *AccessService) HasPerm(target wechat.WechatTarget, perm Perm) (bool, error) {
+func (a *AccessService) HasAccess(target wechat.WechatTarget, access Access) (bool, error) {
 	if a.IsAdmin(target) {
 		return true, nil
 	}
-	currentPerm, err := a.GetPerm(target)
+	currentAccess, err := a.GetAccess(target)
 	if err != nil {
 		return false, err
 	}
-	return currentPerm&perm != 0, nil
+	return currentAccess&access != 0, nil
 }
 
 func (a *AccessService) IsAdmin(target wechat.WechatTarget) bool {

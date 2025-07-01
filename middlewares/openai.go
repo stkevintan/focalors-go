@@ -36,12 +36,11 @@ func NewOpenAIMiddleware(base *middlewareBase) Middleware {
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
-	if ok, _ := o.access.HasPerm(msg, service.GPTPerm); !ok {
-		logger.Debug("User does not have permission", slog.String("user", msg.GetTarget()))
-		return false
-	}
-
 	if fs := msg.ToFlagSet("gpt"); fs != nil {
+		if ok, _ := o.access.HasAccess(msg, service.GPTAccess); !ok {
+			return false
+		}
+
 		// imageMode := fs.Bool("img", false, "Whether to use image mode")
 		if help := fs.Parse(); help != "" {
 			o.SendText(msg, help)

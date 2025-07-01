@@ -23,11 +23,11 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 		return false
 	}
 
-	if fs := msg.ToFlagSet("perm"); fs != nil {
+	if fs := msg.ToFlagSet("access"); fs != nil {
 		var kind string
 		var target string
 		fs.StringVar(&kind, "p", "", "权限类型")
-		fs.StringVar(&target, "t", "", "目标用户wxid, 默认当前群")
+		fs.StringVar(&target, "u", "", "目标用户wxid, 默认当前群")
 		if help := fs.Parse(); help != "" {
 			a.SendText(msg, help)
 			return true
@@ -38,7 +38,7 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 			return true
 		}
 
-		permType := service.NewPerm(kind)
+		permType := service.NewAccess(kind)
 		if permType == 0 {
 			a.SendText(msg, "未知权限类型")
 			return true
@@ -68,14 +68,14 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 
 		switch verb {
 		case "add":
-			if err := a.access.AddPerm(wechat.NewTarget(target), permType); err != nil {
+			if err := a.access.AddAccess(wechat.NewTarget(target), permType); err != nil {
 				a.SendText(msg, fmt.Sprintf("%s: 添加权限失败: %s", nickname, err.Error()))
 			} else {
 				a.SendText(msg, fmt.Sprintf("%s: 添加权限成功", nickname))
 			}
 			return true
 		case "del":
-			if err := a.access.RemovePerm(wechat.NewTarget(target), permType); err != nil {
+			if err := a.access.DelAccess(wechat.NewTarget(target), permType); err != nil {
 				a.SendText(msg, fmt.Sprintf("%s: 删除权限失败: %s", nickname, err.Error()))
 			} else {
 				a.SendText(msg, fmt.Sprintf("%s: 删除权限成功", nickname))

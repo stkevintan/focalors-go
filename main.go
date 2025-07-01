@@ -103,6 +103,7 @@ func main() {
 	m.AddMiddlewares(
 		middlewares.NewLogMsgMiddleware,
 		middlewares.NewAdminMiddleware,
+		middlewares.NewAccessMiddleware,
 		middlewares.NewJiadanMiddleware,
 		middlewares.NewOpenAIMiddleware,
 		middlewares.NewBridgeMiddlewareFactory(y),
