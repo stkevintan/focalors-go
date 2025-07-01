@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"focalors-go/config"
-	"focalors-go/slogger"
-	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -55,9 +53,8 @@ type WeatherService struct {
 	chinaData *ChinaData
 	adcodeMap map[string]string // name -> adcode mapping for quick lookup
 	initOnce  sync.Once
+	initError error
 }
-
-var logger = slogger.New("weather")
 
 func NewWeatherService(cfg *config.WeatherConfig) *WeatherService {
 	ws := &WeatherService{
@@ -88,11 +85,12 @@ type WeatherData struct {
 	Lives    []WeatherLive `json:"lives"`
 }
 
-func (w *WeatherService) initCityData() {
+func (w *WeatherService) initCityData() error {
 	w.initOnce.Do(func() {
 		file, err := cityCodeJSON.Open("city-code.json")
 		if err != nil {
-			logger.Error("Failed to open city-code.json", slog.String("error", err.Error()))
+			// logger.Error("Failed to open city-code.json", slog.String("error", err.Error()))
+			w.initError = fmt.Errorf("failed to open city-code.json: %w", err)
 			return
 		}
 		defer file.Close()
@@ -100,13 +98,15 @@ func (w *WeatherService) initCityData() {
 		var chinaData ChinaData
 		decoder := json.NewDecoder(file)
 		if err := decoder.Decode(&chinaData); err != nil {
-			logger.Error("Failed to decode city-code.json", slog.String("error", err.Error()))
+			// logger.Error("Failed to decode city-code.json", slog.String("error", err.Error()))
+			w.initError = fmt.Errorf("failed to decode city-code.json: %w", err)
 			return
 		}
 
 		w.chinaData = &chinaData
 		w.buildAdcodeMap()
 	})
+	return w.initError
 }
 
 func (w *WeatherService) buildAdcodeMap() {
@@ -159,9 +159,11 @@ func (w *WeatherService) normalizeProvinceCityName(name string) string {
 	return name
 }
 
-func (w *WeatherService) getAdcode(location string) string {
+func (w *WeatherService) getAdcode(location string) (string, error) {
 	// Initialize city data if not already done
-	w.initCityData()
+	if err := w.initCityData(); err != nil {
+		return "", err
+	}
 
 	// Clean the input location string
 	location = strings.TrimSpace(location)
@@ -172,21 +174,20 @@ func (w *WeatherService) getAdcode(location string) string {
 
 	// Try exact match first
 	if adcode, exists := w.adcodeMap[location]; exists {
-		return adcode
+		return adcode, nil
 	}
-	return ""
-
+	return "", fmt.Errorf("no matching adcode found for %s", location)
 }
+
 func (w *WeatherService) GetWeather(ctx context.Context, location string) ([]WeatherLive, error) {
 	if w.cfg.Key == "" {
 		return nil, fmt.Errorf("weather service key is not set")
 	}
 	var report WeatherData
-	adcode := w.getAdcode(location)
-	if adcode == "" {
-		return nil, fmt.Errorf("no matching city found for %s", location)
+	adcode, err := w.getAdcode(location)
+	if err != nil {
+		return nil, fmt.Errorf("no matching city found for %s: %w", location, err)
 	}
-	logger.Info("Probe adcode from location", slog.String("location", location), slog.String("adcode", adcode))
 	ret, err := w.client.R().
 		SetContext(ctx).
 		SetResult(&report).

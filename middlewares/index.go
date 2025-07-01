@@ -6,6 +6,7 @@ import (
 	"focalors-go/config"
 	"focalors-go/db"
 	"focalors-go/scheduler"
+	"focalors-go/service"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
 	"log/slog"
@@ -21,9 +22,10 @@ type Middleware interface {
 
 type middlewareBase struct {
 	*wechat.WechatClient
-	redis *db.Redis
-	cron  *scheduler.CronTask
-	cfg   *config.Config
+	access *service.AccessService
+	redis  *db.Redis
+	cron   *scheduler.CronTask
+	cfg    *config.Config
 }
 
 func (m *middlewareBase) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
@@ -45,6 +47,7 @@ func newBaseMiddleware(
 	cfg *config.Config,
 ) *middlewareBase {
 	return &middlewareBase{
+		access:       service.NewAccessService(w, redis, cfg.App.Admin),
 		WechatClient: w,
 		redis:        redis,
 		cron:         cron,

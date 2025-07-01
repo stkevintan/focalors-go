@@ -360,6 +360,10 @@ func (m *MessageFlagSet) Parse() string {
 	return ""
 }
 
+func (m *MessageFlagSet) Rest() string {
+	return strings.TrimSpace(strings.Join(m.Args(), " "))
+}
+
 func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
 	if m.MsgType != TextMessage {
 		return nil

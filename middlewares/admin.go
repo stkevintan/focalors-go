@@ -19,13 +19,67 @@ func NewAdminMiddleware(base *middlewareBase) Middleware {
 }
 
 func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMessage) bool {
-	if !msg.IsCommand() || msg.FromUserId != a.cfg.App.Admin {
+	if !a.access.IsAdmin(msg) {
 		return false
 	}
-	if msg.Content == "#定时任务" && msg.IsPrivate() {
-		return a.onCronTask(msg)
+	if fs := msg.ToFlagSet("admin"); fs != nil {
+		var topic string
+		fs.StringVar(&topic, "s", "", "topic: cron, perm")
+		if help := fs.Parse(); help != "" {
+			a.SendText(msg, help)
+			return true
+		}
+		switch topic {
+		case "cron":
+			return a.onCronTask(msg)
+		case "perm":
+			return a.onAdminMessage(msg)
+		default:
+			a.SendText(msg, "未知主题")
+			return true
+		}
 	}
 	return false
+}
+func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
+	targetAndPerms, err := a.access.ListTargetAndPerm()
+	if err != nil {
+		logger.Warn("Failed to list target and perm", slog.Any("error", err))
+		a.SendText(msg, "获取权限列表失败")
+		return true
+	}
+	var text strings.Builder
+	text.Grow(len(targetAndPerms) * 10)
+
+	var nicknameMap = make(map[string]string, len(targetAndPerms)) // Pre-allocate capacity
+	wxids := make([]string, 0, len(targetAndPerms))
+	for _, entry := range targetAndPerms {
+		wxids = append(wxids, entry.Target)
+	}
+	contacts, err := a.GetGeneralContactDetails(wxids...)
+	if err != nil {
+		logger.Warn("Failed to get contact details", slog.Any("error", err))
+	} else {
+		for _, contact := range contacts.Users {
+			nicknameMap[contact.UserName.Str] = contact.NickName.Str
+		}
+		for _, contact := range contacts.Rooms {
+			nicknameMap[contact.UserName.Str] = contact.NickName.Str
+		}
+	}
+
+	for _, tp := range targetAndPerms {
+		nickname := nicknameMap[tp.Target]
+		if nickname == "" {
+			nickname = tp.Target
+		} else {
+			nickname = fmt.Sprintf("%s(%s)", nickname, tp.Target)
+		}
+		text.WriteString(fmt.Sprintf("🔑 %s | %s | %s\n", nickname, tp.Perm.String(), tp.Perm))
+	}
+
+	a.SendText(msg, text.String())
+	return true
 }
 
 func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
@@ -39,7 +93,7 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 	for _, entry := range tasks {
 		wxids = append(wxids, entry.Wxid)
 	}
-	contacts, err := a.GetContactDetails(wxids...)
+	contacts, err := a.GetGeneralContactDetails(wxids...)
 	if err != nil {
 		logger.Warn("Failed to get contact details", slog.Any("error", err))
 	} else {

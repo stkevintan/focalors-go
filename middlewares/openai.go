@@ -7,7 +7,6 @@ import (
 	"focalors-go/service"
 	"focalors-go/wechat"
 	"log/slog"
-	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/azure"
@@ -37,13 +36,18 @@ func NewOpenAIMiddleware(base *middlewareBase) Middleware {
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
+	if ok, _ := o.access.HasPerm(msg, service.GPTPerm); !ok {
+		logger.Debug("User does not have permission", slog.String("user", msg.GetTarget()))
+		return false
+	}
+
 	if fs := msg.ToFlagSet("gpt"); fs != nil {
 		// imageMode := fs.Bool("img", false, "Whether to use image mode")
 		if help := fs.Parse(); help != "" {
 			o.SendText(msg, help)
 			return true
 		}
-		content := strings.Join(fs.Args(), " ")
+		content := fs.Rest()
 		response, err := o.onTextMode(ctx, content)
 		if err != nil {
 			o.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))

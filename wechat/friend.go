@@ -62,7 +62,7 @@ type GetContactDetailsAll struct {
 	Rooms []GroupContactDetailModel
 }
 
-func (w *WechatClient) GetContactDetails(ids ...string) (*GetContactDetailsAll, error) {
+func (w *WechatClient) GetGeneralContactDetails(ids ...string) (*GetContactDetailsAll, error) {
 	users := []string{}
 	rooms := []string{}
 	for _, id := range ids {
