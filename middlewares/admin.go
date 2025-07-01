@@ -75,7 +75,7 @@ func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
 		} else {
 			nickname = fmt.Sprintf("%s(%s)", nickname, tp.Target)
 		}
-		text.WriteString(fmt.Sprintf("🔑 %s | %s\n", nickname, tp.Perm.String()))
+		text.WriteString(fmt.Sprintf("🔑 %s: %s\n", nickname, tp.Perm.String()))
 	}
 
 	response := text.String()
