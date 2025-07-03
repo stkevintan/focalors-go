@@ -62,6 +62,7 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 		sendChan:   make(chan SendMessage, 5),
 	}
 }
+
 func readJson(conn *websocket.Conn, v any) error {
 	target, ok := v.(*WechatMessage)
 	if !ok {
@@ -77,7 +78,8 @@ func readJson(conn *websocket.Conn, v any) error {
 	return nil
 }
 
-func (w *WechatClient) initAccount() error {
+/* Login Wechat account */
+func (w *WechatClient) Init() error {
 	loginCtx, cancel := context.WithTimeout(w.ctx, 2*time.Minute)
 	ticker := time.NewTicker(2 * time.Second)
 	loginNotify := make(chan int, 1)
@@ -90,21 +92,19 @@ func (w *WechatClient) initAccount() error {
 			return loginCtx.Err()
 		case <-ticker.C:
 			status, err := w.GetLoginStatus()
-			if err == nil {
+			if err != nil {
+				return fmt.Errorf("failed to get login status: %w", err)
+			}
+
+			if status.Data.LoginErrMsg == "账号在线状态良好！" {
 				logger.Info("Account is online", slog.String("loginErrMsg", status.Data.LoginErrMsg))
 				return nil
 			}
-			// fatal error
-			if status == nil {
-				return err
-			}
 
-			if status.Data.LoginErrMsg != "账号在线状态良好！" {
-				logger.Error("Failed to get login status", slog.Any("status", status), slog.Any("error", err))
-				loginNotify <- loginTimes
-				loginTimes++
-				continue
-			}
+			logger.Error("Failed to get login status", slog.Any("status", status), slog.Any("error", err))
+			loginNotify <- loginTimes
+			loginTimes++
+			continue
 		case loginTimes := <-loginNotify:
 			if loginTimes == 0 {
 				// awake login
@@ -146,9 +146,7 @@ func (w *WechatClient) processSend() {
 		}
 	}
 }
-
 func (w *WechatClient) Run() error {
-	w.initAccount()
 	go w.processSend()
 	return w.ws.Run()
 }

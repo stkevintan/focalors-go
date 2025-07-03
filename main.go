@@ -91,8 +91,9 @@ func main() {
 		cancel() // Cancel the context to signal all components to stop
 	}()
 
-	y := yunzai.NewYunzai(ctx, cfg)
 	w := wechat.NewWechat(ctx, cfg)
+	w.Init()
+	y := yunzai.NewYunzai(ctx, cfg)
 	redis := db.NewRedis(ctx, &cfg.App.Redis)
 	defer redis.Close()
 	cron := scheduler.NewCronTask(redis)
