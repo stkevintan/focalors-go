@@ -104,7 +104,6 @@ func (w *WechatClient) Init() error {
 			logger.Error("Failed to get login status", slog.Any("status", status), slog.Any("error", err))
 			loginNotify <- loginTimes
 			loginTimes++
-			continue
 		case loginTimes := <-loginNotify:
 			if loginTimes == 0 {
 				// awake login
@@ -120,9 +119,9 @@ func (w *WechatClient) Init() error {
 				res2, err := w.GetLoginQRCode()
 				if err != nil {
 					logger.Error("Failed to get login QR code", slog.Any("error", err))
-					continue
+				} else {
+					logger.Info("Get login QR code", slog.String("qrCodeUrl", res2.Data.QrCodeUrl))
 				}
-				logger.Info("Get login QR code", slog.String("qrCodeUrl", res2.Data.QrCodeUrl))
 			}
 		}
 	}
