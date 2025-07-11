@@ -32,7 +32,7 @@ func (b *bridgeMiddleware) Start() error {
 }
 
 func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
-	if !msg.IsCommand() {
+	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.Content) {
 		return false
 	}
 	b.updateAvatarCache(msg)
