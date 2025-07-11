@@ -32,7 +32,7 @@ func (b *bridgeMiddleware) Start() error {
 }
 
 func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
-	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.Content) {
+	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.Text) {
 		return false
 	}
 	b.updateAvatarCache(msg)
@@ -42,7 +42,7 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 		userType = "direct"
 	}
 
-	msg.Content = strings.TrimPrefix(msg.Content, "#!")
+	text := strings.TrimPrefix(msg.Text, "#!")
 
 	sent := yunzai.Request{
 		BotSelfId: "focalors",
@@ -54,7 +54,7 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 		Content: []yunzai.MessageContent{
 			{
 				Type: "text",
-				Data: msg.Content,
+				Data: text,
 			},
 		},
 		Sender: b.createSender(msg),
@@ -162,7 +162,7 @@ func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[strin
 
 func (b *bridgeMiddleware) updateAvatarCache(msg *wechat.WechatMessage) {
 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
-	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Content) {
+	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Text) {
 		res, err := b.GetUserContactDetails(msg.FromUserId)
 		if err != nil {
 			logger.Error("Failed to get contact details", slog.Any("error", err))

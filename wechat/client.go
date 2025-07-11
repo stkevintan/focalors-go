@@ -21,6 +21,7 @@ type WechatClient struct {
 	httpClient *R.Client
 	ws         *client.WebSocketClient[WechatMessage]
 	sendChan   chan SendMessage
+	Me         *UserProfile
 }
 
 type ApiResult struct {
@@ -98,6 +99,10 @@ func (w *WechatClient) Init() error {
 
 			if status.Data.LoginErrMsg == "账号在线状态良好！" {
 				logger.Info("Account is online", slog.String("loginErrMsg", status.Data.LoginErrMsg))
+				w.Me, err = w.GetProfile()
+				if err != nil {
+					logger.Warn("Failed to get profile", slog.Any("error", err))
+				}
 				return nil
 			}
 

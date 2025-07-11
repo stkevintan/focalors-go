@@ -7,6 +7,7 @@ import (
 	"focalors-go/service"
 	"focalors-go/wechat"
 	"log/slog"
+	"slices"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/azure"
@@ -47,7 +48,22 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 			return true
 		}
 		content := fs.Rest()
-		response, err := o.onTextMode(ctx, content)
+		// get thread
+		messages := []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage(content),
+		}
+		if msg.MsgType == wechat.ReferMessage {
+			referMessage := msg.GetReferMessage()
+			if referMessage != nil && referMessage.Text != "" {
+				if referMessage.FromUserId == o.Me.UserInfo.UserName.Str {
+					messages = append(messages, openai.AssistantMessage(referMessage.Text))
+				} else {
+					messages = append(messages, openai.UserMessage(referMessage.Text))
+				}
+			}
+		}
+		slices.Reverse(messages)
+		response, err := o.onTextMode(ctx, messages)
 		if err != nil {
 			o.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
 		}
@@ -57,16 +73,11 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 	return false
 }
 
-// func (o *OpenAIMiddleware) onImageMode(prompt string) error {
-// 	return nil
-// }
-
-func (o *OpenAIMiddleware) onTextMode(ctx context.Context, prompt string) (string, error) {
+func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.ChatCompletionMessageParamUnion) (string, error) {
+	logger.Info("Sending message to OpenAI", slog.Any("messages", messages))
 	params := openai.ChatCompletionNewParams{
-		Model: openai.ChatModel(o.cfg.OpenAI.Deployment),
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
-		},
+		Model:     openai.ChatModel(o.cfg.OpenAI.Deployment),
+		Messages:  messages,
 		MaxTokens: openai.Int(2048),
 		Tools: []openai.ChatCompletionToolParam{
 			{

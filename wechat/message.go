@@ -4,9 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/google/shlex"
+
+	"github.com/antchfx/xmlquery"
 )
 
 type SendMessage interface {
@@ -278,7 +281,9 @@ type WechatMessage struct {
 	FromGroupId string   `json:"from_group_id"`
 	ChatType    ChatType `json:"chat_type"`
 	Content     string   `json:"content"`
-	appmsg      map[string]interface{}
+	Text        string   `json:"text"`
+	// cache keys, no need to serialize
+	xml *xmlquery.Node `json:"-"`
 }
 
 func (w *WechatMessage) GetTarget() string {
@@ -297,11 +302,11 @@ func (w *WechatMessage) IsPrivate() bool {
 }
 
 func (w *WechatMessage) IsText() bool {
-	return w.MsgType == TextMessage
+	return w.Text != ""
 }
 
 func (w *WechatMessage) IsCommand() bool {
-	return w.IsText() && strings.HasPrefix(w.Content, "#")
+	return w.IsText() && strings.HasPrefix(w.Text, "#")
 }
 
 func (msg *WechatSyncMessage) Parse() WechatMessage {
@@ -330,7 +335,102 @@ func (msg *WechatSyncMessage) Parse() WechatMessage {
 			logger.Warn("Failed to split group message", slog.String("Content", message.Content))
 		}
 	}
+	if strings.HasPrefix(message.Content, "\u003c?xml") {
+		// deserialize xml content
+		message.Content = deserializeToXMLStr(message.Content)
+		// parse xml
+		message.xml, _ = xmlquery.Parse(strings.NewReader(message.Content))
+	}
+
+	switch msg.MsgType {
+	case TextMessage:
+		message.Text = message.Content
+	case ReferMessage:
+		if message.xml != nil {
+			title := xmlquery.FindOne(message.xml, "//appmsg/title")
+			if title != nil {
+				message.Text = title.InnerText()
+			}
+		}
+	}
 	return message
+}
+
+func deserializeToXMLStr(content string) string {
+	// // Handle other Unicode escapes
+	for strings.Contains(content, "\\u") {
+		start := strings.Index(content, "\\u")
+		if start == -1 || start+6 > len(content) {
+			break
+		}
+
+		hexStr := content[start+2 : start+6]
+		if code, err := strconv.ParseInt(hexStr, 16, 32); err == nil {
+			content = content[:start] + string(rune(code)) + content[start+6:]
+		} else {
+			break
+		}
+	}
+
+	return content
+}
+
+func (w *WechatMessage) GetReferMessage() *WechatMessage {
+	if w.xml == nil {
+		return nil
+	}
+	refer := xmlquery.FindOne(w.xml, "/msg/appmsg/refermsg")
+	if refer == nil {
+		return nil
+	}
+
+	typeStr := InnerText(refer, "/type")
+	msgType := TextMessage
+	if typeStr != "" {
+		a, _ := strconv.Atoi(typeStr)
+		msgType = MessageType(a)
+	}
+	msgIdStr := InnerText(refer, "/svrid")
+	msgId := int64(0)
+	if msgIdStr != "" {
+		msgId, _ = strconv.ParseInt(msgIdStr, 10, 64)
+	}
+
+	fromUser := InnerText(refer, "/fromusr")
+	chatUser := InnerText(refer, "/chatusr")
+
+	if chatUser != "" {
+		tmp := fromUser
+		fromUser = chatUser
+		chatUser = tmp
+	}
+	if chatUser == fromUser {
+		chatUser = ""
+	}
+
+	referredMessage := &WechatMessage{
+		WechatMessageBase: WechatMessageBase{
+			MsgType:    msgType,
+			MsgId:      msgId,
+			CreateTime: w.CreateTime,
+		},
+		FromUserId:  fromUser,
+		ToUserId:    w.ToUserId,
+		FromGroupId: chatUser,
+		ChatType:    w.ChatType,
+		Content:     InnerText(refer, "/content"),
+	}
+	if referredMessage.MsgType == TextMessage {
+		referredMessage.Text = referredMessage.Content
+	}
+
+	if referredMessage.MsgType == ReferMessage {
+		logger.Info("Refer message", slog.Any("refer", referredMessage.Content))
+		referredMessage.xml, _ = xmlquery.Parse(strings.NewReader(referredMessage.Content))
+		referredMessage.Text = InnerText(referredMessage.xml, "/msg/appmsg/title")
+	}
+
+	return referredMessage
 }
 
 type MessageFlagSet struct {
@@ -365,10 +465,10 @@ func (m *MessageFlagSet) Rest() string {
 }
 
 func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
-	if m.MsgType != TextMessage {
+	if m.Text == "" {
 		return nil
 	}
-	content := strings.Trim(m.Content, " \n")
+	content := strings.Trim(m.Text, " \n")
 	cmdPrefix := fmt.Sprintf("#%s", name)
 	if !strings.HasPrefix(content, cmdPrefix) {
 		return nil
@@ -380,4 +480,12 @@ func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
 		FlagSet: flag.NewFlagSet(name, flag.ContinueOnError),
 		argStr:  content[len(cmdPrefix):],
 	}
+}
+
+func InnerText(refer *xmlquery.Node, xpath string) string {
+	node := xmlquery.FindOne(refer, xpath)
+	if node != nil {
+		return node.InnerText()
+	}
+	return ""
 }
