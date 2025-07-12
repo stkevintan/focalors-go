@@ -90,6 +90,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		v.SetConfigName("config")
 		v.AddConfigPath(".")
 		v.AddConfigPath("./config")
+		v.AddConfigPath("/app")
 		v.AddConfigPath("$HOME/.focalors-go")
 		v.AddConfigPath("/etc/focalors-go")
 	}

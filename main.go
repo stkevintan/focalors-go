@@ -60,7 +60,8 @@ func main() {
 		printVersionInfo()
 		return
 	}
-
+	pwd, _ := os.Getwd()
+	logger.Info("current working dir:", slog.String("pwd", pwd))
 	// Load configuration
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
