@@ -57,7 +57,7 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
 		sendChan:   make(chan SendMessage, 5),
-		ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
+		// ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
 	}
 }
 
@@ -137,6 +137,7 @@ func (w *WechatClient) Run() error {
 		w.SetWebhook()
 		return w.StartWebhookServer()
 	case cfg.PushTypeWebSocket:
+		w.ws = client.NewClient[WechatSyncMessage](w.ctx, fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
 		w.ws.AddMessageHandler(func(ctx context.Context, msg *WechatSyncMessage) bool {
 			message := msg.Parse(w.self.UserInfo.UserName.Str)
 			for _, handler := range w.handlers {
@@ -153,6 +154,9 @@ func (w *WechatClient) Run() error {
 }
 
 func (w *WechatClient) Dispose() {
+	if w.ws != nil {
+		w.ws.Close()
+	}
 	close(w.sendChan)
 }
 

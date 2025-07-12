@@ -71,8 +71,6 @@ func main() {
 
 	if cfg.App.Debug {
 		slogger.SetLogLevel(slog.LevelDebug)
-		logger.Info("Debug mode is enabled",
-			slog.Any("Config", cfg))
 	}
 
 	// Create a cancellable context for graceful shutdown
