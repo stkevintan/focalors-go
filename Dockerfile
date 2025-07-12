@@ -1,5 +1,5 @@
 # Build stage - cross-compile Go binaries
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24.2-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
