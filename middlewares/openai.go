@@ -53,7 +53,7 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 			openai.UserMessage(content),
 		}
 		if msg.MsgType == wechat.ReferMessage {
-			referMessage := msg.GetReferMessage()
+			referMessage := o.GetReferMessage(msg)
 			if referMessage != nil && referMessage.Text != "" {
 				if referMessage.IsSelfMsg {
 					messages = append(messages, openai.AssistantMessage(referMessage.Text))

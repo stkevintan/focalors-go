@@ -41,12 +41,20 @@ type YunzaiConfig struct {
 	Server string `mapstructure:"server"`
 }
 
+type PushType string
+
+const (
+	PushTypeWebhook   PushType = "webhook"
+	PushTypeWebSocket PushType = "websocket"
+)
+
 type WechatConfig struct {
-	Server        string `mapstructure:"server"`
-	SubURL        string `mapstructure:"subURL"`
-	Token         string `mapstructure:"token"`
-	WebhookSecret string `mapstructure:"webhookSecret"`
-	WebhookHost   string `mapstructure:"webhookHost"`
+	Server        string   `mapstructure:"server"`
+	SubURL        string   `mapstructure:"subURL"`
+	Token         string   `mapstructure:"token"`
+	WebhookSecret string   `mapstructure:"webhookSecret"`
+	WebhookHost   string   `mapstructure:"webhookHost"`
+	PushType      PushType `mapstructure:"pushType"`
 }
 
 type OpenAIConfig struct {
@@ -143,6 +151,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("openai.apiVersion", "2025-03-01-preview")
 
 	v.SetDefault("wechat.webhookHost", "localhost")
+	v.SetDefault("wechat.pushType", PushTypeWebSocket)
 }
 
 // createDefaultConfig creates a default configuration file if none exists

@@ -276,7 +276,6 @@ type WechatSyncMessage struct {
 }
 
 type WechatMessage struct {
-	SelfUserId  string      `json:"self_user_id"`
 	MsgId       string      `json:"msg_id"`
 	MsgType     MessageType `json:"msg_type"`
 	Timestamp   int64       `json:"timestamp"`
@@ -362,7 +361,6 @@ func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	// map WechatWebHookMessage to WechatMessage
 	message := &WechatMessage{
 		MsgId:      msg.MsgId,
-		SelfUserId: msg.Key,
 		MsgType:    msg.MsgType,
 		IsSelfMsg:  msg.IsSelfMsg,
 		IsHistory:  msg.IsHistory,
@@ -411,9 +409,9 @@ func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	return message
 }
 
-func (msg *WechatSyncMessage) Parse() WechatMessage {
+func (msg *WechatSyncMessage) Parse(selfId string) *WechatMessage {
 	// map WechatSyncMessage to WechatMessage
-	message := WechatMessage{
+	message := &WechatMessage{
 		MsgId:      strconv.FormatInt(msg.MsgId, 10),
 		MsgType:    msg.MsgType,
 		Timestamp:  time.Now().Unix(),
@@ -421,6 +419,7 @@ func (msg *WechatSyncMessage) Parse() WechatMessage {
 		FromUserId: msg.FromUserId.Str,
 		ToUserId:   msg.ToUserId.Str,
 		Content:    msg.Content.Str,
+		IsSelfMsg:  selfId == msg.FromUserId.Str,
 	}
 
 	if strings.HasSuffix(message.FromUserId, "@chatroom") {
@@ -480,11 +479,11 @@ func deserializeToXMLStr(content string) string {
 	return content
 }
 
-func (w *WechatMessage) GetReferMessage() *WechatMessage {
-	if w.xml == nil {
+func (w *WechatClient) GetReferMessage(msg *WechatMessage) *WechatMessage {
+	if msg.xml == nil {
 		return nil
 	}
-	refer := xmlquery.FindOne(w.xml, "/msg/appmsg/refermsg")
+	refer := xmlquery.FindOne(msg.xml, "/msg/appmsg/refermsg")
 	if refer == nil {
 		return nil
 	}
@@ -517,13 +516,12 @@ func (w *WechatMessage) GetReferMessage() *WechatMessage {
 		MsgId:       fmt.Sprintf("%d", msgId),
 		MsgType:     msgType,
 		Timestamp:   time.Now().Unix(),
-		CreateTime:  w.CreateTime,
-		SelfUserId:  w.SelfUserId,
-		IsSelfMsg:   w.SelfUserId == fromUser,
+		CreateTime:  msg.CreateTime,
+		IsSelfMsg:   w.self.UserInfo.UserName.Str == fromUser,
 		FromUserId:  fromUser,
-		ToUserId:    w.ToUserId,
+		ToUserId:    msg.ToUserId,
 		FromGroupId: chatUser,
-		ChatType:    w.ChatType,
+		ChatType:    msg.ChatType,
 		Content:     InnerText(refer, "/content"),
 	}
 	if referredMessage.MsgType == TextMessage {

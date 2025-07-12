@@ -3,6 +3,7 @@ package wechat
 import (
 	"context"
 	"fmt"
+	"focalors-go/client"
 	cfg "focalors-go/config"
 	"focalors-go/slogger"
 	"log/slog"
@@ -14,11 +15,13 @@ import (
 var logger = slogger.New("wechat")
 
 type WechatClient struct {
+	ws         *client.WebSocketClient[WechatSyncMessage]
 	ctx        context.Context
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
 	sendChan   chan SendMessage
 	handlers   []func(ctx context.Context, msg *WechatMessage) bool
+	self       *UserProfile
 }
 
 type ApiResult struct {
@@ -40,7 +43,7 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 	httpClient.
 		SetBaseURL(cfg.Wechat.Server).
 		SetContext(ctx).
-		SetDebug(cfg.App.Debug).
+		// SetDebug(cfg.App.Debug).
 		SetTimeout(2*time.Minute).
 		SetQueryParam("key", cfg.Wechat.Token).
 		SetDebugLogFormatter(func(dl *R.DebugLog) string {
@@ -54,6 +57,7 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
 		sendChan:   make(chan SendMessage, 5),
+		ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
 	}
 }
 
@@ -126,8 +130,26 @@ func (w *WechatClient) processSend() {
 }
 func (w *WechatClient) Run() error {
 	go w.processSend()
-	w.SetWebhook()
-	return w.StartWebhookServer()
+	w.self, _ = w.GetProfile()
+	logger.Info("Self profile", slog.Any("self", w.self))
+	switch w.cfg.PushType {
+	case cfg.PushTypeWebhook:
+		w.SetWebhook()
+		return w.StartWebhookServer()
+	case cfg.PushTypeWebSocket:
+		w.ws.AddMessageHandler(func(ctx context.Context, msg *WechatSyncMessage) bool {
+			message := msg.Parse(w.self.UserInfo.UserName.Str)
+			for _, handler := range w.handlers {
+				if handler(ctx, message) {
+					return true
+				}
+			}
+			return false
+		})
+		return w.ws.Run()
+	default:
+		return fmt.Errorf("unsupported push type: %s", w.cfg.PushType)
+	}
 }
 
 func (w *WechatClient) Dispose() {
