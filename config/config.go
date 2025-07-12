@@ -42,9 +42,11 @@ type YunzaiConfig struct {
 }
 
 type WechatConfig struct {
-	Server string `mapstructure:"server"`
-	SubURL string `mapstructure:"subURL"`
-	Token  string `mapstructure:"token"`
+	Server        string `mapstructure:"server"`
+	SubURL        string `mapstructure:"subURL"`
+	Token         string `mapstructure:"token"`
+	WebhookSecret string `mapstructure:"webhookSecret"`
+	WebhookHost   string `mapstructure:"webhookHost"`
 }
 
 type OpenAIConfig struct {
@@ -139,6 +141,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("jiadan.maxSyncCount", 4)
 
 	v.SetDefault("openai.apiVersion", "2025-03-01-preview")
+
+	v.SetDefault("wechat.webhookHost", "localhost")
 }
 
 // createDefaultConfig creates a default configuration file if none exists

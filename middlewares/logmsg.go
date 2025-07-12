@@ -23,7 +23,7 @@ func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 		slog.String("FromGroupId", msg.FromGroupId),
 		slog.String("ToUserId", msg.ToUserId),
 		slog.String("MsgType", fmt.Sprintf("%d", msg.MsgType)),
-		slog.String("Content", msg.PushContent),
+		slog.String("Content", msg.Content),
 	)
 	return false
 }

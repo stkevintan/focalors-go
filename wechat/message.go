@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/shlex"
 
@@ -275,15 +276,63 @@ type WechatSyncMessage struct {
 }
 
 type WechatMessage struct {
-	WechatMessageBase
-	FromUserId  string   `json:"from_user_id"`
-	ToUserId    string   `json:"to_user_id"`
-	FromGroupId string   `json:"from_group_id"`
-	ChatType    ChatType `json:"chat_type"`
-	Content     string   `json:"content"`
-	Text        string   `json:"text"`
+	SelfUserId  string      `json:"self_user_id"`
+	MsgId       string      `json:"msg_id"`
+	MsgType     MessageType `json:"msg_type"`
+	Timestamp   int64       `json:"timestamp"`
+	FromUserId  string      `json:"from_user_id"`
+	ToUserId    string      `json:"to_user_id"`
+	FromGroupId string      `json:"from_group_id"`
+	ChatType    ChatType    `json:"chat_type"`
+	Content     string      `json:"content"`
+	IsSelfMsg   bool        `json:"is_self_msg"`
+	IsHistory   bool        `json:"is_history"`
+	CreateTime  int64       `json:"create_time"`
+	Text        string      `json:"text"`
 	// cache keys, no need to serialize
 	xml *xmlquery.Node `json:"-"`
+}
+
+/*
+### 字段說明
+
+| 字段 | 類型 | 說明 |
+|------|------|------|
+| key | string | 微信帳號唯一標識 |
+| msgId | string | 訊息唯一ID |
+| timestamp | int64 | 訊息推送時間戳 |
+| fromUser | string | 發送者ID |
+| toUser | string | 接收者ID |
+| msgType | int | 訊息類型 |
+| content | object | 訊息內容，根據訊息類型不同而不同 |
+| isSelfMsg | boolean | 是否為自己發送的訊息 |
+| createTime | int64 | 訊息創建時間戳 |
+| isHistory | boolean | 是否為歷史訊息 |
+
+### 訊息類型說明
+
+| msgType | 說明 | content 格式 |
+|---------|------|--------------|
+| 1 | 文字訊息 | 字符串 |
+| 3 | 圖片訊息 | 圖片URL或Base64 |
+| 34 | 語音訊息 | 語音URL或Base64 |
+| 43 | 視頻訊息 | 視頻URL或Base64 |
+| 47 | 表情訊息 | 表情URL或Base64 |
+| 49 | 鏈接訊息 | 包含標題、描述、URL等的對象 |
+| 10000 | 系統通知 | 字符串 |
+| 10002 | 撤回訊息 | 字符串 |
+*/
+type WechatWebHookMessage struct {
+	Key        string      `json:"key"`
+	MsgId      string      `json:"msgid"`
+	Timestamp  int64       `json:"timestamp"`
+	FromUser   string      `json:"fromuser"`
+	ToUser     string      `json:"touser"`
+	MsgType    MessageType `json:"msgtype"`
+	Content    any         `json:"content"`
+	IsSelfMsg  bool        `json:"isSelfMsg"`
+	CreateTime int64       `json:"createTime"`
+	IsHistory  bool        `json:"isHistory"`
 }
 
 func (w *WechatMessage) GetTarget() string {
@@ -309,13 +358,69 @@ func (w *WechatMessage) IsCommand() bool {
 	return w.IsText() && strings.HasPrefix(w.Text, "#")
 }
 
+func (msg *WechatWebHookMessage) Parse() *WechatMessage {
+	// map WechatWebHookMessage to WechatMessage
+	message := &WechatMessage{
+		MsgId:      msg.MsgId,
+		SelfUserId: msg.Key,
+		MsgType:    msg.MsgType,
+		IsSelfMsg:  msg.IsSelfMsg,
+		IsHistory:  msg.IsHistory,
+		Timestamp:  msg.Timestamp,
+		CreateTime: msg.CreateTime,
+		FromUserId: msg.FromUser,
+		ToUserId:   msg.ToUser,
+		Content:    fmt.Sprintf("%v", msg.Content),
+	}
+
+	if strings.HasSuffix(message.FromUserId, "@chatroom") {
+		message.ChatType = ChatTypeGroup
+	} else {
+		message.ChatType = ChatTypePrivate
+	}
+
+	if message.ChatType == ChatTypeGroup {
+		groupId := message.FromUserId
+		splited := strings.SplitN(message.Content, ":\n", 2)
+		if len(splited) == 2 {
+			message.FromGroupId = groupId
+			message.FromUserId = splited[0]
+			message.Content = splited[1]
+		} else {
+			logger.Warn("Failed to split group message", slog.String("Content", message.Content))
+		}
+	}
+	if strings.HasPrefix(message.Content, "\u003c?xml") {
+		// deserialize xml content
+		message.Content = deserializeToXMLStr(message.Content)
+		// parse xml
+		message.xml, _ = xmlquery.Parse(strings.NewReader(message.Content))
+	}
+
+	switch message.MsgType {
+	case TextMessage:
+		message.Text = message.Content
+	case ReferMessage:
+		if message.xml != nil {
+			title := xmlquery.FindOne(message.xml, "//appmsg/title")
+			if title != nil {
+				message.Text = title.InnerText()
+			}
+		}
+	}
+	return message
+}
+
 func (msg *WechatSyncMessage) Parse() WechatMessage {
 	// map WechatSyncMessage to WechatMessage
 	message := WechatMessage{
-		WechatMessageBase: msg.WechatMessageBase,
-		FromUserId:        msg.FromUserId.Str,
-		ToUserId:          msg.ToUserId.Str,
-		Content:           msg.Content.Str,
+		MsgId:      strconv.FormatInt(msg.MsgId, 10),
+		MsgType:    msg.MsgType,
+		Timestamp:  time.Now().Unix(),
+		CreateTime: msg.CreateTime,
+		FromUserId: msg.FromUserId.Str,
+		ToUserId:   msg.ToUserId.Str,
+		Content:    msg.Content.Str,
 	}
 
 	if strings.HasSuffix(message.FromUserId, "@chatroom") {
@@ -409,11 +514,12 @@ func (w *WechatMessage) GetReferMessage() *WechatMessage {
 	}
 
 	referredMessage := &WechatMessage{
-		WechatMessageBase: WechatMessageBase{
-			MsgType:    msgType,
-			MsgId:      msgId,
-			CreateTime: w.CreateTime,
-		},
+		MsgId:       fmt.Sprintf("%d", msgId),
+		MsgType:     msgType,
+		Timestamp:   time.Now().Unix(),
+		CreateTime:  w.CreateTime,
+		SelfUserId:  w.SelfUserId,
+		IsSelfMsg:   w.SelfUserId == fromUser,
 		FromUserId:  fromUser,
 		ToUserId:    w.ToUserId,
 		FromGroupId: chatUser,

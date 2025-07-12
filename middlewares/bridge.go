@@ -46,7 +46,7 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 
 	sent := yunzai.Request{
 		BotSelfId: "focalors",
-		MsgId:     fmt.Sprintf("%d", msg.MsgId),
+		MsgId:     msg.MsgId,
 		UserId:    msg.FromUserId,
 		GroupId:   msg.FromGroupId,
 		UserPM:    0,

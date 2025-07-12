@@ -3,13 +3,11 @@ package wechat
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
 	cfg "focalors-go/config"
 	"focalors-go/slogger"
 	"log/slog"
 	"time"
 
-	"github.com/gorilla/websocket"
 	R "resty.dev/v3"
 )
 
@@ -19,9 +17,8 @@ type WechatClient struct {
 	ctx        context.Context
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
-	ws         *client.WebSocketClient[WechatMessage]
 	sendChan   chan SendMessage
-	Me         *UserProfile
+	handlers   []func(ctx context.Context, msg *WechatMessage) bool
 }
 
 type ApiResult struct {
@@ -52,31 +49,12 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 			return fmt.Sprintf("%s\n%s", req, res)
 		})
 
-	ws := client.NewClient[WechatMessage](ctx, cfg.Wechat.SubURL+"?key="+cfg.Wechat.Token)
-	// set custom readJSON
-	ws.SetReadJSON(readJson)
 	return &WechatClient{
 		ctx:        ctx,
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
-		ws:         ws,
 		sendChan:   make(chan SendMessage, 5),
 	}
-}
-
-func readJson(conn *websocket.Conn, v any) error {
-	target, ok := v.(*WechatMessage)
-	if !ok {
-		// This indicates a programming error in how readJson was called.
-		return fmt.Errorf("readJson: expected *WechatMessage but got %T", v)
-	}
-	msg := &WechatSyncMessage{}
-	err := conn.ReadJSON(msg)
-	if err != nil {
-		return err
-	}
-	*target = msg.Parse()
-	return nil
 }
 
 /* Login Wechat account */
@@ -99,10 +77,6 @@ func (w *WechatClient) Init() error {
 
 			if status.Data.LoginErrMsg == "账号在线状态良好！" {
 				logger.Info("Account is online", slog.String("loginErrMsg", status.Data.LoginErrMsg))
-				w.Me, err = w.GetProfile()
-				if err != nil {
-					logger.Warn("Failed to get profile", slog.Any("error", err))
-				}
 				return nil
 			}
 
@@ -133,7 +107,7 @@ func (w *WechatClient) Init() error {
 }
 
 func (w *WechatClient) AddMessageHandler(handler func(ctx context.Context, msg *WechatMessage) bool) {
-	w.ws.AddMessageHandler(handler)
+	w.handlers = append(w.handlers, handler)
 }
 
 func (w *WechatClient) processSend() {
@@ -152,11 +126,12 @@ func (w *WechatClient) processSend() {
 }
 func (w *WechatClient) Run() error {
 	go w.processSend()
-	return w.ws.Run()
+	w.SetWebhook()
+	return w.StartWebhookServer()
 }
 
 func (w *WechatClient) Dispose() {
-	w.ws.Close()
+	close(w.sendChan)
 }
 
 func (w *WechatClient) doGetAPICall(url string, res any) (*R.Response, error) {
