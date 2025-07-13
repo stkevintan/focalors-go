@@ -128,6 +128,7 @@ func (w *WechatClient) processSend() {
 		}
 	}
 }
+
 func (w *WechatClient) Run() error {
 	go w.processSend()
 	w.self, _ = w.GetProfile()
@@ -138,16 +139,14 @@ func (w *WechatClient) Run() error {
 		return w.StartWebhookServer()
 	case cfg.PushTypeWebSocket:
 		w.ws = client.NewClient[WechatSyncMessage](w.ctx, fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
-		w.ws.AddMessageHandler(func(ctx context.Context, msg *WechatSyncMessage) bool {
+		return w.ws.Run(func(ctx context.Context, msg *WechatSyncMessage) {
 			message := msg.Parse(w.self.UserInfo.UserName.Str)
 			for _, handler := range w.handlers {
 				if handler(ctx, message) {
-					return true
+					return
 				}
 			}
-			return false
 		})
-		return w.ws.Run()
 	default:
 		return fmt.Errorf("unsupported push type: %s", w.cfg.PushType)
 	}

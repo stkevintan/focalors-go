@@ -20,8 +20,6 @@ type WebSocketClient[Message any] struct {
 	ctx           context.Context
 	Conn          *websocket.Conn
 	Url           string
-	readJSON      func(Conn *websocket.Conn, v interface{}) error
-	handlers      []func(ctx context.Context, msg *Message) bool
 	messageBuffer chan Message
 	wg            sync.WaitGroup
 }
@@ -33,15 +31,6 @@ func NewClient[Message any](ctx context.Context, url string) *WebSocketClient[Me
 		Url:           url,
 		messageBuffer: make(chan Message, 5), // Reduced from 20 to 5
 	}
-}
-
-func (c *WebSocketClient[Message]) SetReadJSON(readJSON func(Conn *websocket.Conn, v any) error) {
-	c.readJSON = readJSON
-}
-
-// thread unsafe, but we only call this before starting the client
-func (c *WebSocketClient[Message]) AddMessageHandler(handler func(ctx context.Context, msg *Message) bool) {
-	c.handlers = append(c.handlers, handler)
 }
 
 // Connect connects to the websocket server
@@ -90,12 +79,7 @@ func (c *WebSocketClient[Message]) Listen() error {
 				}
 			}
 
-			var err error
-			if c.readJSON == nil {
-				err = c.Conn.ReadJSON(&message)
-			} else {
-				err = c.readJSON(c.Conn, &message)
-			}
+			err := c.Conn.ReadJSON(&message)
 
 			if err == nil {
 				// Step 3: Process the successfully read message.
@@ -131,13 +115,13 @@ func (c *WebSocketClient[Message]) Close() {
 	logger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
 }
 
-func (c *WebSocketClient[Message]) Run() error {
+func (c *WebSocketClient[Message]) Run(OnMessage func(ctx context.Context, msg *Message)) error {
 	c.wg.Add(1)
-	go c.processMessages()
+	go c.processMessages(OnMessage)
 	return c.Listen()
 }
 
-func (c *WebSocketClient[Message]) processMessages() {
+func (c *WebSocketClient[Message]) processMessages(OnMessage func(ctx context.Context, msg *Message)) {
 	defer c.wg.Done()
 	for {
 		select {
@@ -149,12 +133,7 @@ func (c *WebSocketClient[Message]) processMessages() {
 				logger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
 				return
 			}
-			// todo: limit timeout using context
-			for _, handler := range c.handlers {
-				if handler(c.ctx, &message) {
-					break
-				}
-			}
+			OnMessage(c.ctx, &message)
 		}
 	}
 }
