@@ -37,39 +37,34 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
-	if fs := client.ToFlagSet(msg, "gpt"); fs != nil {
-		if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
-			return false
-		}
+	if !msg.IsText() || msg.GetText() == "" || !msg.IsMentioned() {
+		return false
+	}
+	if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
+		return false
+	}
+	content := msg.GetText()
 
-		// imageMode := fs.Bool("img", false, "Whether to use image mode")
-		if help := fs.Parse(); help != "" {
-			o.client.SendText(msg, help)
-			return true
-		}
-		content := fs.Rest()
-		// get thread
-		messages := []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(content),
-		}
-		if referMessage, ok := msg.GetReferMessage(); ok {
-			if referMessage != nil && referMessage.GetText() != "" {
-				if referMessage.GetUserId() == o.client.GetSelfUserId() {
-					messages = append(messages, openai.AssistantMessage(referMessage.GetText()))
-				} else {
-					messages = append(messages, openai.UserMessage(referMessage.GetText()))
-				}
+	// get thread
+	messages := []openai.ChatCompletionMessageParamUnion{
+		openai.UserMessage(content),
+	}
+	if referMessage, ok := msg.GetReferMessage(); ok {
+		if referMessage != nil && referMessage.GetText() != "" {
+			if referMessage.GetUserId() == o.client.GetSelfUserId() {
+				messages = append(messages, openai.AssistantMessage(referMessage.GetText()))
+			} else {
+				messages = append(messages, openai.UserMessage(referMessage.GetText()))
 			}
 		}
-		slices.Reverse(messages)
-		response, err := o.onTextMode(ctx, messages)
-		if err != nil {
-			o.client.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
-		}
-		o.client.SendText(msg, response)
-		return true
 	}
-	return false
+	slices.Reverse(messages)
+	response, err := o.onTextMode(ctx, messages)
+	if err != nil {
+		o.client.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
+	}
+	o.client.SendText(msg, response)
+	return true
 }
 
 func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.ChatCompletionMessageParamUnion) (string, error) {

@@ -79,6 +79,8 @@ type GenericMessage interface {
 	IsText() bool
 	// GetReferMessage returns the message being replied to, if any
 	GetReferMessage() (referMsg GenericMessage, ok bool)
+	// GetMentionedUserIds() []string
+	IsMentioned() bool
 }
 
 func ToFlagSet(m GenericMessage, name string) *MessageFlagSet {
