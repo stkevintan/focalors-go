@@ -73,8 +73,13 @@ func main() {
 
 	// Create a cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
+	w, err := wechat.NewWechat(cfg)
 
-	w, _ := wechat.NewWechat(cfg)
+	if err != nil {
+		logger.Error("Failed to create Wechat client", slog.Any("error", err))
+		return
+	}
+
 	go w.Start(ctx)
 
 	mctx := middlewares.NewMiddlewareContext(ctx, w, cfg)

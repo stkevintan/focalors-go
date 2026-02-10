@@ -111,11 +111,11 @@ func (w *WechatClient) GetContactDetail(id ...string) ([]client.Contact, error) 
 		return nil, err
 	}
 	contacts := make([]client.Contact, 0, len(details.Users)+len(details.Rooms))
-	for _, user := range details.Users {
-		contacts = append(contacts, &user)
+	for i := range details.Users {
+		contacts = append(contacts, &details.Users[i])
 	}
-	for _, room := range details.Rooms {
-		contacts = append(contacts, &room)
+	for i := range details.Rooms {
+		contacts = append(contacts, &details.Rooms[i])
 	}
 	return contacts, nil
 }
