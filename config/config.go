@@ -17,6 +17,7 @@ type Config struct {
 	App     AppConfig     `mapstructure:"app"`
 	Yunzai  YunzaiConfig  `mapstructure:"yunzai"`
 	Wechat  WechatConfig  `mapstructure:"wechat"`
+	Lark    LarkConfig    `mapstructure:"lark"`
 	Jiadan  JiadanConfig  `mapstructure:"jiadan"`
 	OpenAI  OpenAIConfig  `mapstructure:"openai"`
 	Weather WeatherConfig `mapstructure:"weather"`
@@ -29,6 +30,7 @@ type AppConfig struct {
 	Admin    []string    `mapstructure:"admin"`
 	SyncCron string      `mapstructure:"syncCron"`
 	Redis    RedisConfig `mapstructure:"redis"`
+	Platform string      `mapstructure:"platform"` // "wechat" or "lark"
 }
 
 type RedisConfig struct {
@@ -70,6 +72,12 @@ type WeatherConfig struct {
 
 type JiadanConfig struct {
 	MaxSyncCount int `mapstructure:"maxSyncCount"`
+}
+
+type LarkConfig struct {
+	AppID             string `mapstructure:"appId"`
+	AppSecret         string `mapstructure:"appSecret"`
+	VerificationToken string `mapstructure:"verificationToken"`
 }
 
 // LoadConfig loads the configuration from the specified file
@@ -149,6 +157,9 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("wechat.webhookHost", "localhost")
 	v.SetDefault("wechat.pushType", PushTypeWebSocket)
+
+	// App platform default
+	v.SetDefault("app.platform", "wechat")
 }
 
 // createDefaultConfig creates a default configuration file if none exists

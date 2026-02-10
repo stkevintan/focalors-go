@@ -373,6 +373,10 @@ func (w *WechatMessage) IsCommand() bool {
 	return w.IsText() && strings.HasPrefix(w.Text, "#")
 }
 
+func (w *WechatMessage) IsMentioned() bool {
+	return w.ChatType == ChatTypePrivate || strings.Contains(w.Text, "@"+self.UserInfo.NickName.Str)
+}
+
 func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	// map WechatWebHookMessage to WechatMessage
 	message := &WechatMessage{

@@ -115,6 +115,8 @@ func (w *WechatClient) AddMessageHandler(handler WechatMessageHandler) {
 	w.handlers = append(w.handlers, handler)
 }
 
+var self *UserProfile
+
 // func (w *WechatClient) processSend(sendChan chan SendMessage) {
 
 // }
@@ -125,6 +127,7 @@ func (w *WechatClient) Start(ctx context.Context) error {
 		return err
 	}
 	w.self, _ = w.GetProfile()
+	self = w.self
 	logger.Info("Self profile", slog.Any("self", w.self))
 	switch w.cfg.PushType {
 	case cfg.PushTypeWebhook:

@@ -29,8 +29,7 @@ type MiddlewareContext struct {
 	client client.GenericClient
 }
 
-func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg *config.Config) *MiddlewareContext {
-	redis := db.NewRedis(ctx, &cfg.App.Redis)
+func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg *config.Config, redis *db.Redis) *MiddlewareContext {
 	cron := scheduler.NewCronTask(redis)
 	access := service.NewAccessService(redis, cfg.App.Admin)
 	// init
@@ -46,7 +45,6 @@ func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg 
 }
 
 func (mctx *MiddlewareContext) Close() {
-	mctx.redis.Close()
 	mctx.cron.Stop()
 }
 

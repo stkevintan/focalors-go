@@ -4,7 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/db"
+	"focalors-go/lark"
 	"focalors-go/middlewares"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
@@ -73,16 +76,21 @@ func main() {
 
 	// Create a cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	w, err := wechat.NewWechat(cfg)
+
+	// Create shared Redis instance
+	redis := db.NewRedis(ctx, &cfg.App.Redis)
+	defer redis.Close()
+
+	c, err := newGenericClient(cfg, redis)
 
 	if err != nil {
-		logger.Error("Failed to create Wechat client", slog.Any("error", err))
+		logger.Error("Failed to create client", slog.Any("error", err))
 		return
 	}
 
-	go w.Start(ctx)
+	go c.Start(ctx)
 
-	mctx := middlewares.NewMiddlewareContext(ctx, w, cfg)
+	mctx := middlewares.NewMiddlewareContext(ctx, c, cfg, redis)
 	defer mctx.Close()
 
 	m := middlewares.NewRootMiddleware(mctx)
@@ -92,8 +100,8 @@ func main() {
 		middlewares.NewAdminMiddleware,
 		middlewares.NewAccessMiddleware,
 		middlewares.NewJiadanMiddleware,
-		middlewares.NewOpenAIMiddleware,
 		middlewares.NewBridgeMiddleware,
+		middlewares.NewOpenAIMiddleware,
 	)
 
 	if err := m.Start(); err != nil {
@@ -109,4 +117,15 @@ func main() {
 	sig := <-sigChan
 	logger.Info("Received shutdown signal", slog.String("signal", sig.String()))
 	cancel()
+}
+
+func newGenericClient(cfg *config.Config, redis *db.Redis) (client.GenericClient, error) {
+	switch cfg.App.Platform {
+	case "lark":
+		return lark.NewLarkClient(cfg, redis)
+	case "wechat", "":
+		return wechat.NewWechat(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported platform: %s", cfg.App.Platform)
+	}
 }
