@@ -123,7 +123,19 @@ func (m *VideoMessageItem) IsEmpty() bool {
 
 // ==== Public API ====
 
-func (w *WechatClient) SendTextBatch(messages ...*client.MessageUnit) error {
+type MessageUnit struct {
+	Target  string
+	Content []string
+}
+
+func NewMessageUnit(target client.SendTarget, content ...string) *MessageUnit {
+	return &MessageUnit{
+		Target:  target.GetTarget(),
+		Content: content,
+	}
+}
+
+func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	flattenedContent := make([]TextMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -142,10 +154,10 @@ func (w *WechatClient) SendTextBatch(messages ...*client.MessageUnit) error {
 }
 
 func (w *WechatClient) SendText(target client.SendTarget, message ...string) error {
-	return w.SendTextBatch(client.NewMessageUnit(target, message...))
+	return w.SendTextBatch(NewMessageUnit(target, message...))
 }
 
-func (w *WechatClient) SendImageBatch(messages ...*client.MessageUnit) error {
+func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
 	flattenedContent := make([]ImageMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -164,7 +176,7 @@ func (w *WechatClient) SendImageBatch(messages ...*client.MessageUnit) error {
 }
 
 func (w *WechatClient) SendImage(target client.SendTarget, message ...string) error {
-	return w.SendImageBatch(client.NewMessageUnit(target, message...))
+	return w.SendImageBatch(NewMessageUnit(target, message...))
 }
 
 // ==== Received Message =======

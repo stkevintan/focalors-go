@@ -38,9 +38,9 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	}
 	b.updateAvatarCache(msg)
 
-	userType := "group"
-	if msg.GetChatType() == "private" {
-		userType = "direct"
+	userType := "direct"
+	if msg.IsGroup() {
+		userType = "group"
 	}
 
 	text := strings.TrimPrefix(msg.GetText(), "#!")

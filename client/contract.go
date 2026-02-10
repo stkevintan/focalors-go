@@ -57,45 +57,33 @@ func NewTarget(target string) SendTarget {
 	return &SendTargetImpl{Target: target}
 }
 
-type MessageUnit struct {
-	Target  string
-	Content []string
-}
-
-func NewMessageUnit(target SendTarget, content ...string) *MessageUnit {
-	return &MessageUnit{
-		Target:  target.GetTarget(),
-		Content: content,
-	}
-}
-
 type GenericMessage interface {
+	// GetId returns the unique id of the message, if available. Otherwise returns empty string
 	GetId() string
+	// parsed text content, if the message is a text message and can be parsed into a flag set, otherwise empty string
 	GetText() string
 	// unparsed content, if any
 	GetContent() string
-
+	// GetUserId returns the user id of the sender
 	GetUserId() string
+	// GetGroupId returns the group id if the message is sent in a group chat, otherwise returns empty string
 	GetGroupId() string
 	// Target can be group id if it's a group message, or user id if it's a private message
 	GetTarget() string
-	GetChatType() string
-	ToFlagSet(name string) *MessageFlagSet
+	// IsGroup returns true if the message is sent in a group chat
 	IsGroup() bool
 	// Is a text message, as opposed to image, video, etc. Only text messages can be parsed into flag sets
 	IsText() bool
+	// GetReferMessage returns the message being replied to, if any
 	GetReferMessage() (referMsg GenericMessage, ok bool)
+	// ToFlagSet returns a flag set for the message if the message starts with the given prefix, otherwise returns nil
+	ToFlagSet(name string) *MessageFlagSet
 }
 
 type Contact interface {
 	Username() string
 	Nickname() string
 	AvatarUrl() string
-}
-
-type ContactGroup interface {
-	Users() []Contact
-	Rooms() []Contact
 }
 
 type GenericClient interface {
@@ -107,6 +95,5 @@ type GenericClient interface {
 	SendImage(msg SendTarget, content ...string) error
 	// 获取用户或群的基本信息, 包括昵称、头像等
 	GetContactDetail(userId ...string) ([]Contact, error)
-	// GetGeneralContactDetails(userId ...string) (ContactGroup, error)
 	GetSelfUserId() string
 }
