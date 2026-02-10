@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/db"
 	"focalors-go/lark"
 	"focalors-go/middlewares"
 	"focalors-go/slogger"
@@ -75,7 +76,12 @@ func main() {
 
 	// Create a cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	c, err := newGenericClient(cfg)
+
+	// Create shared Redis instance
+	redis := db.NewRedis(ctx, &cfg.App.Redis)
+	defer redis.Close()
+
+	c, err := newGenericClient(cfg, redis)
 
 	if err != nil {
 		logger.Error("Failed to create client", slog.Any("error", err))
@@ -84,7 +90,7 @@ func main() {
 
 	go c.Start(ctx)
 
-	mctx := middlewares.NewMiddlewareContext(ctx, c, cfg)
+	mctx := middlewares.NewMiddlewareContext(ctx, c, cfg, redis)
 	defer mctx.Close()
 
 	m := middlewares.NewRootMiddleware(mctx)
@@ -113,10 +119,10 @@ func main() {
 	cancel()
 }
 
-func newGenericClient(cfg *config.Config) (client.GenericClient, error) {
+func newGenericClient(cfg *config.Config, redis *db.Redis) (client.GenericClient, error) {
 	switch cfg.App.Platform {
 	case "lark":
-		return lark.NewLarkClient(cfg)
+		return lark.NewLarkClient(cfg, redis)
 	case "wechat", "":
 		return wechat.NewWechat(cfg)
 	default:

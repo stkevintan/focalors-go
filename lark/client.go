@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/db"
 	"focalors-go/slogger"
 	"log/slog"
 	"strings"
+	"time"
 
 	larkSDK "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -21,16 +23,24 @@ import (
 
 var logger = slogger.New("lark")
 
+const (
+	// Redis key prefix for message deduplication
+	msgDedupeKeyPrefix = "lark:msg:dedup:"
+	// TTL for deduplication keys
+	msgDedupeTTL = 5 * time.Minute
+)
+
 type LarkClient struct {
 	sdk      *larkSDK.Client
 	cfg      *config.LarkConfig
 	handlers []func(ctx context.Context, msg client.GenericMessage) bool
 	botId    string // open_id of the bot
+	redis    *db.Redis
 }
 
 var _ client.GenericClient = (*LarkClient)(nil)
 
-func NewLarkClient(cfg *config.Config) (*LarkClient, error) {
+func NewLarkClient(cfg *config.Config, redis *db.Redis) (*LarkClient, error) {
 	if cfg.Lark.AppID == "" || cfg.Lark.AppSecret == "" {
 		return nil, fmt.Errorf("lark appId and appSecret are required")
 	}
@@ -40,14 +50,33 @@ func NewLarkClient(cfg *config.Config) (*LarkClient, error) {
 	)
 
 	return &LarkClient{
-		sdk: sdkClient,
-		cfg: &cfg.Lark,
+		sdk:   sdkClient,
+		cfg:   &cfg.Lark,
+		redis: redis,
 	}, nil
 }
 
 func (l *LarkClient) Start(ctx context.Context) error {
 	eventHandler := dispatcher.NewEventDispatcher("", l.cfg.VerificationToken).
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+			// Deduplicate messages using Redis
+			msgId := ""
+			if event.Event != nil && event.Event.Message != nil && event.Event.Message.MessageId != nil {
+				msgId = *event.Event.Message.MessageId
+			}
+			if msgId != "" {
+				key := msgDedupeKeyPrefix + msgId
+				// Try to set the key with NX (only if not exists)
+				set, err := l.redis.RedisClient.SetNX(ctx, key, "1", msgDedupeTTL).Result()
+				if err != nil {
+					logger.Error("failed to check message dedup in redis", slog.Any("error", err))
+				} else if !set {
+					// Key already exists, this is a duplicate
+					logger.Debug("skipping duplicate message", slog.String("messageId", msgId))
+					return nil
+				}
+			}
+
 			msg, err := l.parseMessage(event)
 			if err != nil {
 				logger.Error("failed to parse lark message", slog.Any("error", err))
