@@ -37,7 +37,7 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
-	if fs := msg.ToFlagSet("gpt"); fs != nil {
+	if fs := client.ToFlagSet(msg, "gpt"); fs != nil {
 		if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
 			return false
 		}

@@ -22,7 +22,7 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		return false
 	}
 
-	if fs := msg.ToFlagSet("access"); fs != nil {
+	if fs := client.ToFlagSet(msg, "access"); fs != nil {
 		var kind string
 		var target string
 		fs.StringVar(&kind, "p", "", "权限类型")

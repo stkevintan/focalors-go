@@ -1,7 +1,6 @@
 package wechat
 
 import (
-	"flag"
 	"fmt"
 	"focalors-go/client"
 	"log/slog"
@@ -551,24 +550,6 @@ func (w *WechatMessage) GetReferMessage() (referMsg client.GenericMessage, ok bo
 	}
 
 	return referredMessage, true
-}
-
-func (m *WechatMessage) ToFlagSet(name string) *client.MessageFlagSet {
-	if m.Text == "" {
-		return nil
-	}
-	content := strings.Trim(m.Text, " \n")
-	cmdPrefix := fmt.Sprintf("#%s", name)
-	if !strings.HasPrefix(content, cmdPrefix) {
-		return nil
-	}
-	if len(content) != len(cmdPrefix) && content[len(cmdPrefix)] != ' ' {
-		return nil
-	}
-	return &client.MessageFlagSet{
-		FlagSet: flag.NewFlagSet(name, flag.ContinueOnError),
-		ArgStr:  content[len(cmdPrefix):],
-	}
 }
 
 func InnerText(refer *xmlquery.Node, xpath string) string {

@@ -49,7 +49,7 @@ func (j *jiadanMiddleware) Start() error {
 }
 
 func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
-	if fs := msg.ToFlagSet("煎蛋"); fs != nil {
+	if fs := client.ToFlagSet(msg, "煎蛋"); fs != nil {
 		var top int
 		var cron string
 		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")

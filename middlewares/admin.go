@@ -22,7 +22,7 @@ func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessa
 	if !a.access.IsAdmin(msg.GetTarget()) {
 		return false
 	}
-	if fs := msg.ToFlagSet("admin"); fs != nil {
+	if fs := client.ToFlagSet(msg, "admin"); fs != nil {
 		var topic string
 		fs.StringVar(&topic, "s", "", "topic: cron, access")
 		if help := fs.Parse(); help != "" {

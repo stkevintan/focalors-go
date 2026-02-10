@@ -12,11 +12,11 @@ import (
 
 type MessageFlagSet struct {
 	*flag.FlagSet
-	ArgStr string
+	argStr string
 }
 
 func (m *MessageFlagSet) SplitParse() error {
-	args, err := shlex.Split(m.ArgStr)
+	args, err := shlex.Split(m.argStr)
 	if err != nil {
 		return err
 	}
@@ -76,8 +76,24 @@ type GenericMessage interface {
 	IsText() bool
 	// GetReferMessage returns the message being replied to, if any
 	GetReferMessage() (referMsg GenericMessage, ok bool)
-	// ToFlagSet returns a flag set for the message if the message starts with the given prefix, otherwise returns nil
-	ToFlagSet(name string) *MessageFlagSet
+}
+
+func ToFlagSet(m GenericMessage, name string) *MessageFlagSet {
+	if m.GetText() == "" {
+		return nil
+	}
+	content := strings.Trim(m.GetText(), " \n")
+	cmdPrefix := fmt.Sprintf("#%s", name)
+	if !strings.HasPrefix(content, cmdPrefix) {
+		return nil
+	}
+	if len(content) != len(cmdPrefix) && content[len(cmdPrefix)] != ' ' {
+		return nil
+	}
+	return &MessageFlagSet{
+		FlagSet: flag.NewFlagSet(name, flag.ContinueOnError),
+		argStr:  content[len(cmdPrefix):],
+	}
 }
 
 type Contact interface {
