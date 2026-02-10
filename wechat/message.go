@@ -3,12 +3,11 @@ package wechat
 import (
 	"flag"
 	"fmt"
+	"focalors-go/client"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/shlex"
 
 	"github.com/antchfx/xmlquery"
 )
@@ -22,7 +21,13 @@ func (w *WechatClient) SendMessage(message SendMessage) error {
 	if message.IsEmpty() {
 		return fmt.Errorf("message cannot be empty")
 	}
-	w.sendChan <- message
+	go func() {
+		res := &ApiResult{}
+		if _, err := w.doPostAPICall(message.GetUri(), message, res); err != nil {
+			logger.Error("Failed to send message", slog.Any("message", message), slog.Any("error", err))
+		}
+		time.Sleep(1 * time.Second)
+	}()
 	return nil
 }
 
@@ -117,23 +122,8 @@ func (m *VideoMessageItem) IsEmpty() bool {
 }
 
 // ==== Public API ====
-type MessageUnit struct {
-	Target  string
-	Content []string
-}
 
-type WechatTarget interface {
-	GetTarget() string
-}
-
-func NewMessageUnit(target WechatTarget, content ...string) *MessageUnit {
-	return &MessageUnit{
-		Target:  target.GetTarget(),
-		Content: content,
-	}
-}
-
-func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
+func (w *WechatClient) SendTextBatch(messages ...*client.MessageUnit) error {
 	flattenedContent := make([]TextMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -151,23 +141,11 @@ func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
-type WechatTargetImpl struct {
-	Target string
+func (w *WechatClient) SendText(target client.SendTarget, message ...string) error {
+	return w.SendTextBatch(client.NewMessageUnit(target, message...))
 }
 
-func (w *WechatTargetImpl) GetTarget() string {
-	return w.Target
-}
-
-func NewTarget(target string) WechatTarget {
-	return &WechatTargetImpl{Target: target}
-}
-
-func (w *WechatClient) SendText(target WechatTarget, message ...string) error {
-	return w.SendTextBatch(NewMessageUnit(target, message...))
-}
-
-func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
+func (w *WechatClient) SendImageBatch(messages ...*client.MessageUnit) error {
 	flattenedContent := make([]ImageMessageItem, 0, len(messages))
 	for _, m := range messages {
 		for _, content := range m.Content {
@@ -185,8 +163,8 @@ func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
 	return w.SendMessage(&ImageMessageModel{MsgItem: flattenedContent})
 }
 
-func (w *WechatClient) SendImage(target WechatTarget, message ...string) error {
-	return w.SendImageBatch(NewMessageUnit(target, message...))
+func (w *WechatClient) SendImage(target client.SendTarget, message ...string) error {
+	return w.SendImageBatch(client.NewMessageUnit(target, message...))
 }
 
 // ==== Received Message =======
@@ -250,11 +228,11 @@ const (
 	SystemMsgMessage MessageType = 10000
 )
 
-type ChatType int
+type ChatType string
 
 const (
-	ChatTypePrivate ChatType = iota
-	ChatTypeGroup   ChatType = iota
+	ChatTypePrivate ChatType = "private"
+	ChatTypeGroup   ChatType = "group"
 )
 
 type WechatMessageBase struct {
@@ -284,12 +262,39 @@ type WechatMessage struct {
 	FromGroupId string      `json:"from_group_id"`
 	ChatType    ChatType    `json:"chat_type"`
 	Content     string      `json:"content"`
-	IsSelfMsg   bool        `json:"is_self_msg"`
-	IsHistory   bool        `json:"is_history"`
-	CreateTime  int64       `json:"create_time"`
-	Text        string      `json:"text"`
+	// IsSelfMsg   bool        `json:"is_self_msg"`
+	IsHistory  bool   `json:"is_history"`
+	CreateTime int64  `json:"create_time"`
+	Text       string `json:"text"`
 	// cache keys, no need to serialize
 	xml *xmlquery.Node `json:"-"`
+}
+
+func (w *WechatMessage) GetText() string {
+	return w.Text
+}
+
+func (w *WechatMessage) GetUserId() string {
+	return w.FromUserId
+}
+
+func (w *WechatMessage) GetGroupId() string {
+	return w.FromGroupId
+}
+
+func (w *WechatMessage) GetChatType() string {
+	if w.ChatType == ChatTypeGroup {
+		return "group"
+	}
+	return "private"
+}
+
+func (w *WechatMessage) GetContent() string {
+	return w.Content
+}
+
+func (w *WechatMessage) GetId() string {
+	return w.MsgId
 }
 
 /*
@@ -360,9 +365,9 @@ func (w *WechatMessage) IsCommand() bool {
 func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	// map WechatWebHookMessage to WechatMessage
 	message := &WechatMessage{
-		MsgId:      msg.MsgId,
-		MsgType:    msg.MsgType,
-		IsSelfMsg:  msg.IsSelfMsg,
+		MsgId:   msg.MsgId,
+		MsgType: msg.MsgType,
+		// IsSelfMsg:  msg.IsSelfMsg,
 		IsHistory:  msg.IsHistory,
 		Timestamp:  msg.Timestamp,
 		CreateTime: msg.CreateTime,
@@ -409,7 +414,7 @@ func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	return message
 }
 
-func (msg *WechatSyncMessage) Parse(selfId string) *WechatMessage {
+func (msg *WechatSyncMessage) Parse() *WechatMessage {
 	// map WechatSyncMessage to WechatMessage
 	message := &WechatMessage{
 		MsgId:      strconv.FormatInt(msg.MsgId, 10),
@@ -419,7 +424,7 @@ func (msg *WechatSyncMessage) Parse(selfId string) *WechatMessage {
 		FromUserId: msg.FromUserId.Str,
 		ToUserId:   msg.ToUserId.Str,
 		Content:    msg.Content.Str,
-		IsSelfMsg:  selfId == msg.FromUserId.Str,
+		// IsSelfMsg:  selfId == msg.FromUserId.Str,
 	}
 
 	if strings.HasSuffix(message.FromUserId, "@chatroom") {
@@ -478,14 +483,13 @@ func deserializeToXMLStr(content string) string {
 
 	return content
 }
-
-func (w *WechatClient) GetReferMessage(msg *WechatMessage) *WechatMessage {
-	if msg.xml == nil {
-		return nil
+func (w *WechatMessage) GetReferMessage() (referMsg client.GenericMessage, ok bool) {
+	if w.MsgType != ReferMessage || w.xml == nil {
+		return nil, false
 	}
-	refer := xmlquery.FindOne(msg.xml, "/msg/appmsg/refermsg")
+	refer := xmlquery.FindOne(w.xml, "/msg/appmsg/refermsg")
 	if refer == nil {
-		return nil
+		return nil, false
 	}
 
 	typeStr := InnerText(refer, "/type")
@@ -513,15 +517,15 @@ func (w *WechatClient) GetReferMessage(msg *WechatMessage) *WechatMessage {
 	}
 
 	referredMessage := &WechatMessage{
-		MsgId:       fmt.Sprintf("%d", msgId),
-		MsgType:     msgType,
-		Timestamp:   time.Now().Unix(),
-		CreateTime:  msg.CreateTime,
-		IsSelfMsg:   w.self.UserInfo.UserName.Str == fromUser,
+		MsgId:      fmt.Sprintf("%d", msgId),
+		MsgType:    msgType,
+		Timestamp:  time.Now().Unix(),
+		CreateTime: w.CreateTime,
+		// IsSelfMsg:   w.self.UserInfo.UserName.Str == fromUser,
 		FromUserId:  fromUser,
-		ToUserId:    msg.ToUserId,
+		ToUserId:    w.ToUserId,
 		FromGroupId: chatUser,
-		ChatType:    msg.ChatType,
+		ChatType:    w.ChatType,
 		Content:     InnerText(refer, "/content"),
 	}
 	if referredMessage.MsgType == TextMessage {
@@ -534,41 +538,10 @@ func (w *WechatClient) GetReferMessage(msg *WechatMessage) *WechatMessage {
 		referredMessage.Text = InnerText(referredMessage.xml, "/msg/appmsg/title")
 	}
 
-	return referredMessage
+	return referredMessage, true
 }
 
-type MessageFlagSet struct {
-	*flag.FlagSet
-	argStr string
-}
-
-func (m *MessageFlagSet) SplitParse() error {
-	args, err := shlex.Split(m.argStr)
-	if err != nil {
-		return err
-	}
-	return m.FlagSet.Parse(args)
-}
-
-func (m *MessageFlagSet) Parse() string {
-	if err := m.SplitParse(); err != nil {
-		if err.Error() == "flag: help requested" {
-			var usageBuf strings.Builder
-			m.SetOutput(&usageBuf)
-			m.Usage()
-			return usageBuf.String()
-		}
-		logger.Error("failed to parse command", slog.Any("error", err))
-		return fmt.Sprintf("解析失败，发送`#%s -h` 获得帮助", m.Name())
-	}
-	return ""
-}
-
-func (m *MessageFlagSet) Rest() string {
-	return strings.TrimSpace(strings.Join(m.Args(), " "))
-}
-
-func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
+func (m *WechatMessage) ToFlagSet(name string) *client.MessageFlagSet {
 	if m.Text == "" {
 		return nil
 	}
@@ -580,9 +553,9 @@ func (m *WechatMessage) ToFlagSet(name string) *MessageFlagSet {
 	if len(content) != len(cmdPrefix) && content[len(cmdPrefix)] != ' ' {
 		return nil
 	}
-	return &MessageFlagSet{
+	return &client.MessageFlagSet{
 		FlagSet: flag.NewFlagSet(name, flag.ContinueOnError),
-		argStr:  content[len(cmdPrefix):],
+		ArgStr:  content[len(cmdPrefix):],
 	}
 }
 

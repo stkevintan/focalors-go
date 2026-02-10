@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"focalors-go/client"
 	"focalors-go/service"
-	"focalors-go/wechat"
 	"log/slog"
 	"slices"
 
@@ -14,12 +14,12 @@ import (
 )
 
 type OpenAIMiddleware struct {
-	*middlewareBase
-	client  *openai.Client
+	*MiddlewareContext
+	openai  *openai.Client
 	weather *service.WeatherService
 }
 
-func NewOpenAIMiddleware(base *middlewareBase) Middleware {
+func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 	if base.cfg.OpenAI.APIKey == "" || base.cfg.OpenAI.Endpoint == "" {
 		return nil
 	}
@@ -30,21 +30,21 @@ func NewOpenAIMiddleware(base *middlewareBase) Middleware {
 	)
 
 	return &OpenAIMiddleware{
-		middlewareBase: base,
-		client:         &client,
-		weather:        service.NewWeatherService(&base.cfg.Weather),
+		MiddlewareContext: base,
+		openai:            &client,
+		weather:           service.NewWeatherService(&base.cfg.Weather),
 	}
 }
 
-func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
+func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
 	if fs := msg.ToFlagSet("gpt"); fs != nil {
-		if ok, _ := o.access.HasAccess(msg, service.GPTAccess); !ok {
+		if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
 			return false
 		}
 
 		// imageMode := fs.Bool("img", false, "Whether to use image mode")
 		if help := fs.Parse(); help != "" {
-			o.SendText(msg, help)
+			o.client.SendText(msg, help)
 			return true
 		}
 		content := fs.Rest()
@@ -52,22 +52,21 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 		messages := []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(content),
 		}
-		if msg.MsgType == wechat.ReferMessage {
-			referMessage := o.GetReferMessage(msg)
-			if referMessage != nil && referMessage.Text != "" {
-				if referMessage.IsSelfMsg {
-					messages = append(messages, openai.AssistantMessage(referMessage.Text))
+		if referMessage, ok := msg.GetReferMessage(); ok {
+			if referMessage != nil && referMessage.GetText() != "" {
+				if referMessage.GetUserId() == o.client.GetSelfUserId() {
+					messages = append(messages, openai.AssistantMessage(referMessage.GetText()))
 				} else {
-					messages = append(messages, openai.UserMessage(referMessage.Text))
+					messages = append(messages, openai.UserMessage(referMessage.GetText()))
 				}
 			}
 		}
 		slices.Reverse(messages)
 		response, err := o.onTextMode(ctx, messages)
 		if err != nil {
-			o.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
+			o.client.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
 		}
-		o.SendText(msg, response)
+		o.client.SendText(msg, response)
 		return true
 	}
 	return false
@@ -98,7 +97,7 @@ func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.Cha
 		},
 	}
 
-	completion, err := o.client.Chat.Completions.New(ctx, params)
+	completion, err := o.openai.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return "", err
 	}
@@ -128,7 +127,7 @@ func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.Cha
 		}
 	}
 
-	completion, err = o.client.Chat.Completions.New(ctx, params)
+	completion, err = o.openai.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return "", err
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"focalors-go/client"
 	"focalors-go/scheduler"
-	"focalors-go/wechat"
 	"log/slog"
 	"path"
 	"strconv"
@@ -17,15 +17,15 @@ import (
 )
 
 type jiadanMiddleware struct {
-	*middlewareBase
-	client   *resty.Client
+	*MiddlewareContext
+	resty    *resty.Client
 	sendLock sync.Mutex
 }
 
-func NewJiadanMiddleware(base *middlewareBase) Middleware {
+func NewJiadanMiddleware(base *MiddlewareContext) Middleware {
 	return &jiadanMiddleware{
-		middlewareBase: base,
-		client:         resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
+		MiddlewareContext: base,
+		resty:             resty.New().SetRetryCount(3).SetRetryWaitTime(1 * time.Second),
 	}
 }
 
@@ -38,7 +38,7 @@ func (j *jiadanMiddleware) Start() error {
 				logger.Warn("Invalid cron job params", slog.Any("params", p))
 				continue
 			}
-			if err := j.cron.AddCronJob(getKey(target), j.SyncJob, p); err != nil {
+			if err := j.cron.AddCronJob(getKey(target), j.SyncJob(), p); err != nil {
 				logger.Error("Failed to add cron job", slog.Any("error", err))
 			} else {
 				logger.Info("Jiadan auto sync enabled", slog.String("target", target), slog.Any("params", p))
@@ -48,18 +48,18 @@ func (j *jiadanMiddleware) Start() error {
 	return nil
 }
 
-func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
+func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
 	if fs := msg.ToFlagSet("煎蛋"); fs != nil {
 		var top int
 		var cron string
 		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
 		fs.IntVar(&top, "t", 1, fmt.Sprintf("单次同步帖子数量, 1 <= N <= %d", j.cfg.Jiadan.MaxSyncCount))
 		if help := fs.Parse(); help != "" {
-			j.SendText(msg, help)
+			j.client.SendText(msg, help)
 			return true
 		}
 		if top < 1 || top > j.cfg.Jiadan.MaxSyncCount {
-			j.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", j.cfg.Jiadan.MaxSyncCount))
+			j.client.SendText(msg, fmt.Sprintf("同步帖子数量必须在1-%d之间", j.cfg.Jiadan.MaxSyncCount))
 			return true
 		}
 
@@ -68,85 +68,83 @@ func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMess
 			urls, err := j.getJiadanTop(getKey(msg.GetTarget()), top, 0, false)
 			if err != nil {
 				logger.Error("Failed to get Jiadan URLs", slog.Any("error", err))
-				j.SendText(msg, "获取煎蛋失败")
+				j.client.SendText(msg, "获取煎蛋失败")
 				return true
 			}
 			if len(urls) == 0 {
-				j.SendText(msg, "没有找到新的煎蛋无聊图")
+				j.client.SendText(msg, "没有找到新的煎蛋无聊图")
 				return true
 			}
 
 			if base64Images, err := j.fetchJiadan(urls); err != nil {
 				logger.Error("Failed to fetch Jiadan images", slog.Any("error", err))
-				j.SendText(msg, "煎蛋无聊图下载失败")
+				j.client.SendText(msg, "煎蛋无聊图下载失败")
 			} else if len(base64Images) > 0 {
-				j.SendImage(msg, base64Images...)
+				j.client.SendImage(msg, base64Images...)
 			} else {
-				j.SendText(msg, "煎蛋无聊图下载失败")
+				j.client.SendText(msg, "煎蛋无聊图下载失败")
 			}
 			return true
 		}
 		// 关闭自动同步
 		if cron == "off" {
 			j.cron.RemoveCronJob(getKey(msg.GetTarget()))
-			j.SendText(msg, "煎蛋自动同步已经关闭")
+			j.client.SendText(msg, "煎蛋自动同步已经关闭")
 			return true
 		}
 		if cron == "default" || cron == "on" || cron == "auto" {
 			cron = j.cfg.App.SyncCron
 		}
 		if err := scheduler.ValidateCronInterval(cron, 10*time.Minute); err != nil {
-			j.SendText(msg, err.Error())
+			j.client.SendText(msg, err.Error())
 			return true
 		}
 		// 开启自动同步
-		err := j.cron.AddCronJob(getKey(msg.GetTarget()), j.SyncJob, map[string]string{
+		err := j.cron.AddCronJob(getKey(msg.GetTarget()), j.SyncJob(), map[string]string{
 			"spec":   cron,
 			"target": msg.GetTarget(),
 			"top":    strconv.Itoa(top),
 		})
 		if err != nil {
 			logger.Error("Failed to add cron job", slog.Any("error", err))
-			j.SendText(msg, "煎蛋自动同步开启失败, 请检查cron表达式")
+			j.client.SendText(msg, "煎蛋自动同步开启失败, 请检查cron表达式")
 		} else {
-			j.SendText(msg, "煎蛋自动同步已经开启")
+			j.client.SendText(msg, "煎蛋自动同步已经开启")
 		}
 		return true
 	}
 	return false
 }
 
-func (j *jiadanMiddleware) SyncJob(ctx map[string]string) error {
-	target := ctx["target"]
-	topStr := ctx["top"]
-	top, _ := strconv.Atoi(topStr)
-	if top <= 0 {
-		top = 1
-	}
-	logger.Debug("Start jiadan sync job", slog.String("target", target), slog.Int("top", top))
-	urls, err := j.getJiadanTop(getKey(target), top, 0, true)
-	if err != nil {
-		return fmt.Errorf("failed to get Jiadan URLs, %w", err)
-	}
-	if len(urls) == 0 {
-		logger.Debug("No new Jiadan images", slog.String("target", target))
+func (j *jiadanMiddleware) SyncJob() func(ctx map[string]string) error {
+	return func(ctx map[string]string) error {
+		target := ctx["target"]
+		topStr := ctx["top"]
+		top, _ := strconv.Atoi(topStr)
+		if top <= 0 {
+			top = 1
+		}
+		logger.Debug("Start jiadan sync job", slog.String("target", target), slog.Int("top", top))
+		urls, err := j.getJiadanTop(getKey(target), top, 0, true)
+		if err != nil {
+			return fmt.Errorf("failed to get Jiadan URLs, %w", err)
+		}
+		if len(urls) == 0 {
+			logger.Debug("No new Jiadan images", slog.String("target", target))
+			return nil
+		}
+		base64Images, err := j.fetchJiadan(urls)
+		if err != nil {
+			return fmt.Errorf("failed to fetch Jiadan images, %w", err)
+		}
+		if len(base64Images) > 0 {
+			j.sendLock.Lock()
+			defer j.sendLock.Unlock()
+			j.client.SendImage(client.NewTarget(target), base64Images...)
+			time.Sleep(2 * time.Second) // 控制发送频率，避免过快
+		}
 		return nil
 	}
-	base64Images, err := j.fetchJiadan(urls)
-	if err != nil {
-		return fmt.Errorf("failed to fetch Jiadan images, %w", err)
-	}
-	if len(base64Images) > 0 {
-		msg := &wechat.MessageUnit{
-			Target:  target,
-			Content: base64Images,
-		}
-		j.sendLock.Lock()
-		defer j.sendLock.Unlock()
-		j.SendImageBatch(msg)
-		time.Sleep(2 * time.Second) // 控制发送频率，避免过快
-	}
-	return nil
 }
 
 type JiadanComment struct {
@@ -194,7 +192,7 @@ func (j *jiadanMiddleware) getJiadanTop(key string, top int, page int, syncMode 
 	cnt := 0
 	jiadan := &JiadanResponse{}
 	urls := []string{}
-	resp, err := j.client.R().SetResult(jiadan).Get(commentUrl)
+	resp, err := j.resty.R().SetResult(jiadan).Get(commentUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +246,7 @@ func (j *jiadanMiddleware) fetchJiadan(urls []string) ([]string, error) {
 	base64Images := []string{}
 	for _, url := range urls {
 		logger.Debug("Downloading image", slog.String("url", url))
-		resp, err := j.client.R().Get(url)
+		resp, err := j.resty.R().Get(url)
 		if err != nil {
 			logger.Error("Failed to download image", slog.String("url", url), slog.Any("error", err))
 			continue

@@ -2,3 +2,4 @@ focalors-go
 *.png
 config.toml
 samples/
+.DS_Store

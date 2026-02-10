@@ -17,7 +17,6 @@ var logger = slogger.New("client")
 
 // A websocket client
 type WebSocketClient[Message any] struct {
-	ctx           context.Context
 	Conn          *websocket.Conn
 	Url           string
 	messageBuffer chan Message
@@ -25,9 +24,8 @@ type WebSocketClient[Message any] struct {
 }
 
 // New creates a new WebSocket client
-func NewClient[Message any](ctx context.Context, url string) *WebSocketClient[Message] {
+func NewClient[Message any](url string) *WebSocketClient[Message] {
 	return &WebSocketClient[Message]{
-		ctx:           ctx,
 		Url:           url,
 		messageBuffer: make(chan Message, 5), // Reduced from 20 to 5
 	}
@@ -60,14 +58,14 @@ func (c *WebSocketClient[Message]) Send(message any) error {
 	return nil
 }
 
-func (c *WebSocketClient[Message]) Listen() error {
+func (c *WebSocketClient[Message]) Listen(ctx context.Context) error {
 	defer close(c.messageBuffer)
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			logger.Info("[WebSocket] Context done, exiting message loop.")
-			c.Close() // Ensure connection is closed and status updated on context done
-			return c.ctx.Err()
+			c.close() // Ensure connection is closed and status updated on context done
+			return ctx.Err()
 		default:
 			var message Message
 			if c.Conn == nil {
@@ -86,9 +84,9 @@ func (c *WebSocketClient[Message]) Listen() error {
 				select {
 				case c.messageBuffer <- message:
 					// Message sent successfully
-				case <-c.ctx.Done():
+				case <-ctx.Done():
 					logger.Info("[WebSocket] Context done while attempting to send message to channel.", slog.String("url", c.Url))
-					return c.ctx.Err()
+					return ctx.Err()
 				case <-time.After(1 * time.Second): // Timeout to prevent blocking Listen indefinitely
 					logger.Warn("[WebSocket] Timeout sending message to processing channel. Channel might be full or processor stuck.", slog.String("url", c.Url))
 				}
@@ -105,7 +103,7 @@ func (c *WebSocketClient[Message]) Listen() error {
 	}
 }
 
-func (c *WebSocketClient[Message]) Close() {
+func (c *WebSocketClient[Message]) close() {
 	if c.Conn != nil {
 		logger.Info("[WebSocket] Closing connection.", slog.String("url", c.Url))
 		c.Conn.Close() // Attempt to close
@@ -115,17 +113,17 @@ func (c *WebSocketClient[Message]) Close() {
 	logger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
 }
 
-func (c *WebSocketClient[Message]) Run(OnMessage func(ctx context.Context, msg *Message)) error {
+func (c *WebSocketClient[Message]) Run(ctx context.Context, OnMessage func(msg *Message)) error {
 	c.wg.Add(1)
-	go c.processMessages(OnMessage)
-	return c.Listen()
+	go c.processMessages(ctx, OnMessage)
+	return c.Listen(ctx)
 }
 
-func (c *WebSocketClient[Message]) processMessages(OnMessage func(ctx context.Context, msg *Message)) {
+func (c *WebSocketClient[Message]) processMessages(ctx context.Context, OnMessage func(msg *Message)) {
 	defer c.wg.Done()
 	for {
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			logger.Info("[WebSocket] Context done, exiting message processing loop.")
 			return
 		case message, ok := <-c.messageBuffer:
@@ -133,7 +131,7 @@ func (c *WebSocketClient[Message]) processMessages(OnMessage func(ctx context.Co
 				logger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
 				return
 			}
-			OnMessage(c.ctx, &message)
+			OnMessage(&message)
 		}
 	}
 }

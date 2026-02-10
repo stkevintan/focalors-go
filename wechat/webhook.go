@@ -87,7 +87,7 @@ func (w *WechatClient) StartWebhookServer() error {
 			case <-ctx.Done():
 				return
 			default:
-				err := w.handleWebhookMessage(&msg)
+				err := w.handleWebhookMessage(ctx, &msg)
 				if err != nil {
 					slog.Error("Failed to handle webhook message", slog.String("error", err.Error()))
 				}
@@ -115,9 +115,9 @@ func SetResponse(w http.ResponseWriter, status int, result, message string) {
 	})
 }
 
-func (w *WechatClient) handleWebhookMessage(msg *WechatWebHookMessage) error {
+func (w *WechatClient) handleWebhookMessage(ctx context.Context, msg *WechatWebHookMessage) error {
 	for _, handler := range w.handlers {
-		handler(w.ctx, msg.Parse())
+		handler(ctx, msg.Parse())
 	}
 	return nil
 }

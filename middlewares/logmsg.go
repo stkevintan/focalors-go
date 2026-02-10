@@ -2,28 +2,31 @@ package middlewares
 
 import (
 	"context"
-	"fmt"
-	"focalors-go/wechat"
+	"focalors-go/client"
 	"log/slog"
 )
 
-type logMsgMiddleware struct {
-	*middlewareBase
+type logMsgMiddleware struct{}
+
+func NewLogMsgMiddleware(_context *MiddlewareContext) Middleware {
+	return &logMsgMiddleware{}
 }
 
-func NewLogMsgMiddleware(base *middlewareBase) Middleware {
-	return &logMsgMiddleware{
-		middlewareBase: base,
-	}
-}
-
-func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
+func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
 	logger.Info("Received Wechat message",
-		slog.String("FromUserId", msg.FromUserId),
-		slog.String("FromGroupId", msg.FromGroupId),
-		slog.String("ToUserId", msg.ToUserId),
-		slog.String("MsgType", fmt.Sprintf("%d", msg.MsgType)),
-		slog.String("Content", msg.Content),
+		slog.String("FromUserId", msg.GetUserId()),
+		slog.String("FromGroupId", msg.GetGroupId()),
+		// slog.String("ToUserId", msg.GetToUserId()),
+		// slog.String("MsgType", fmt.Sprintf("%d", msg.GetMsgType())),
+		slog.String("Content", msg.GetContent()),
 	)
 	return false
+}
+
+func (l *logMsgMiddleware) Start() error {
+	return nil
+}
+
+func (l *logMsgMiddleware) Stop() error {
+	return nil
 }

@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/wechat"
+	"focalors-go/client"
 	"focalors-go/yunzai"
 	"log/slog"
 	"regexp"
@@ -11,44 +11,45 @@ import (
 )
 
 type bridgeMiddleware struct {
-	*middlewareBase
+	*MiddlewareContext
 	y           *yunzai.YunzaiClient
 	avatarCache map[string]string
 }
 
-func NewBridgeMiddlewareFactory(y *yunzai.YunzaiClient) func(base *middlewareBase) Middleware {
-	return func(base *middlewareBase) Middleware {
-		return &bridgeMiddleware{
-			middlewareBase: base,
-			y:              y,
-			avatarCache:    make(map[string]string),
-		}
+func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
+	// create new yunzai client
+	y := yunzai.NewYunzai(base.cfg)
+	return &bridgeMiddleware{
+		MiddlewareContext: base,
+		y:                 y,
+		avatarCache:       make(map[string]string),
 	}
 }
 
 func (b *bridgeMiddleware) Start() error {
+	go b.y.Start(b.ctx)
 	b.y.AddMessageHandler(b.onYunzaiMessage)
 	return nil
 }
 
-func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
-	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.Text) {
+func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.GetText()) {
 		return false
 	}
 	b.updateAvatarCache(msg)
 
 	userType := "group"
-	if msg.ChatType == wechat.ChatTypePrivate {
+	if msg.GetChatType() == "private" {
 		userType = "direct"
 	}
 
-	text := strings.TrimPrefix(msg.Text, "#!")
+	text := strings.TrimPrefix(msg.GetText(), "#!")
 
 	sent := yunzai.Request{
 		BotSelfId: "focalors",
-		MsgId:     msg.MsgId,
-		UserId:    msg.FromUserId,
-		GroupId:   msg.FromGroupId,
+		MsgId:     msg.GetId(),
+		UserId:    msg.GetUserId(),
+		GroupId:   msg.GetGroupId(),
 		UserPM:    0,
 		UserType:  userType,
 		Content: []yunzai.MessageContent{
@@ -103,7 +104,9 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 			}
 			textContent = strings.Trim(textContent, " \n")
 			if textContent != "" {
-				b.SendText(msg, textContent)
+				if b.client != nil {
+					b.client.SendText(msg, textContent)
+				}
 			}
 		case "image":
 			imageContent, ok := content.Data.(string)
@@ -111,7 +114,9 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 				logger.Error("Failed to convert content to string", slog.Any("content", content))
 				continue
 			}
-			b.SendImage(msg, imageContent)
+			if b.client != nil {
+				b.client.SendImage(msg, imageContent)
+			}
 		case "node":
 			nodeContent, ok := content.Data.([]any)
 			if !ok {
@@ -138,8 +143,8 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 	return false
 }
 
-func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[string]any {
-	key := fmt.Sprintf("avatar:%s", message.FromUserId)
+func (b *bridgeMiddleware) createSender(message client.GenericMessage) map[string]any {
+	key := fmt.Sprintf("avatar:%s", message.GetUserId())
 	if avatar, ok := b.avatarCache[key]; ok {
 		return map[string]any{
 			"avatar": avatar,
@@ -160,20 +165,20 @@ func (b *bridgeMiddleware) createSender(message *wechat.WechatMessage) map[strin
 	return nil
 }
 
-func (b *bridgeMiddleware) updateAvatarCache(msg *wechat.WechatMessage) {
+func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
-	if msg.MsgType == wechat.TextMessage && triggers.MatchString(msg.Text) {
-		res, err := b.GetUserContactDetails(msg.FromUserId)
+	if msg.IsText() && triggers.MatchString(msg.GetText()) {
+		contacts, err := b.client.GetContactDetail(msg.GetUserId())
 		if err != nil {
 			logger.Error("Failed to get contact details", slog.Any("error", err))
 			return
 		}
-		for _, contact := range res.Data.ContactList {
-			headUrl := contact.SmallHeadImgUrl
-			key := "avatar:" + contact.UserName.Str
+		for _, contact := range contacts {
+			headUrl := contact.AvatarUrl()
+			key := fmt.Sprintf("avatar:%s", contact.Username())
 			b.avatarCache[key] = headUrl
 			b.redis.Set(key, headUrl, 0)
 		}
-		b.SendText(msg, "头像已更新")
+		b.client.SendText(msg, "头像已更新")
 	}
 }
