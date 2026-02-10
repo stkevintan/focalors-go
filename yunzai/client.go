@@ -12,9 +12,9 @@ type YunzaiClient struct {
 	handlers []func(ctx context.Context, msg *Response) bool
 }
 
-func NewYunzai(ctx context.Context, cfg *config.Config) *YunzaiClient {
+func NewYunzai(cfg *config.Config) *YunzaiClient {
 	return &YunzaiClient{
-		ws:  client.NewClient[Response](ctx, cfg.Yunzai.Server),
+		ws:  client.NewClient[Response](cfg.Yunzai.Server),
 		cfg: cfg,
 	}
 }
@@ -23,18 +23,14 @@ func (y *YunzaiClient) AddMessageHandler(handler func(ctx context.Context, msg *
 	y.handlers = append(y.handlers, handler)
 }
 
-func (y *YunzaiClient) Run() error {
-	return y.ws.Run(func(ctx context.Context, msg *Response) {
+func (y *YunzaiClient) Start(ctx context.Context) error {
+	return y.ws.Run(ctx, func(msg *Response) {
 		for _, handler := range y.handlers {
 			if handler(ctx, msg) {
 				break
 			}
 		}
 	})
-}
-
-func (y *YunzaiClient) Dispose() {
-	y.ws.Close()
 }
 
 func (y *YunzaiClient) Send(message Request) error {

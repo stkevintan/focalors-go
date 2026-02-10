@@ -3,78 +3,82 @@ package middlewares
 import (
 	"context"
 	"fmt"
+	"focalors-go/client"
 	"focalors-go/config"
 	"focalors-go/db"
 	"focalors-go/scheduler"
 	"focalors-go/service"
 	"focalors-go/slogger"
-	"focalors-go/wechat"
 	"log/slog"
 )
 
 var logger = slogger.New("middlewares")
 
 type Middleware interface {
-	OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool
+	OnMessage(ctx context.Context, msg client.GenericMessage) bool
 	Start() error
 	Stop() error
 }
 
-type middlewareBase struct {
-	*wechat.WechatClient
-	access *service.AccessService
+type MiddlewareContext struct {
 	redis  *db.Redis
 	cron   *scheduler.CronTask
 	cfg    *config.Config
+	access *service.AccessService
+	ctx    context.Context
+	client client.GenericClient
 }
 
-func (m *middlewareBase) OnMessage(ctx context.Context, msg *wechat.WechatMessage) bool {
-	return false
-}
-
-func (m *middlewareBase) Start() error {
-	return nil
-}
-
-func (m *middlewareBase) Stop() error {
-	return nil
-}
-
-func newBaseMiddleware(
-	w *wechat.WechatClient,
-	redis *db.Redis,
-	cron *scheduler.CronTask,
-	cfg *config.Config,
-) *middlewareBase {
-	return &middlewareBase{
-		access:       service.NewAccessService(w, redis, cfg.App.Admin),
-		WechatClient: w,
-		redis:        redis,
-		cron:         cron,
-		cfg:          cfg,
+func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg *config.Config) *MiddlewareContext {
+	redis := db.NewRedis(ctx, &cfg.App.Redis)
+	cron := scheduler.NewCronTask(redis)
+	access := service.NewAccessService(redis, cfg.App.Admin)
+	// init
+	cron.Start()
+	return &MiddlewareContext{
+		redis:  redis,
+		cron:   cron,
+		cfg:    cfg,
+		access: access,
+		ctx:    ctx,
+		client: client,
 	}
 }
 
+func (mctx *MiddlewareContext) Close() {
+	mctx.redis.Close()
+	mctx.cron.Stop()
+}
+
+func (m *MiddlewareContext) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+	return false
+}
+
+func (m *MiddlewareContext) Start() error {
+	return nil
+}
+
+func (m *MiddlewareContext) Stop() error {
+	return nil
+}
+
 type RootMiddleware struct {
-	base *middlewareBase
+	*MiddlewareContext
 	// sync lock?
 	middlewares []Middleware
 }
 
 func NewRootMiddleware(
-	w *wechat.WechatClient,
-	redis *db.Redis,
-	cron *scheduler.CronTask,
-	cfg *config.Config,
+	mctx *MiddlewareContext,
 ) *RootMiddleware {
 	return &RootMiddleware{
-		base: newBaseMiddleware(w, redis, cron, cfg),
+		MiddlewareContext: mctx,
 	}
 }
 
-func (r *RootMiddleware) AddMiddlewares(middlewares ...func(m *middlewareBase) Middleware) {
+func (r *RootMiddleware) AddMiddlewares(middlewares ...func(m *MiddlewareContext) Middleware) {
 	for _, mw := range middlewares {
-		instance := mw(r.base)
+		instance := mw(r.MiddlewareContext)
 		if instance != nil {
 			r.middlewares = append(r.middlewares, instance)
 		}
@@ -83,8 +87,9 @@ func (r *RootMiddleware) AddMiddlewares(middlewares ...func(m *middlewareBase) M
 
 func (r *RootMiddleware) Start() error {
 	for _, mw := range r.middlewares {
-		// register middleware
-		r.base.AddMessageHandler(mw.OnMessage)
+		if r.client != nil {
+			r.client.AddMessageHandler(mw.OnMessage)
+		}
 		if err := mw.Start(); err != nil {
 			return err
 		}

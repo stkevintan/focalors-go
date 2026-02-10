@@ -16,11 +16,9 @@ var logger = slogger.New("wechat")
 
 type WechatClient struct {
 	ws         *client.WebSocketClient[WechatSyncMessage]
-	ctx        context.Context
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
-	sendChan   chan SendMessage
-	handlers   []func(ctx context.Context, msg *WechatMessage) bool
+	handlers   []WechatMessageHandler
 	self       *UserProfile
 }
 
@@ -38,11 +36,10 @@ func prettyBody(body string) string {
 	return body
 }
 
-func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
+func NewWechat(cfg *cfg.Config) (*WechatClient, error) {
 	httpClient := R.New()
 	httpClient.
 		SetBaseURL(cfg.Wechat.Server).
-		SetContext(ctx).
 		// SetDebug(cfg.App.Debug).
 		SetTimeout(2*time.Minute).
 		SetQueryParam("key", cfg.Wechat.Token).
@@ -52,18 +49,20 @@ func NewWechat(ctx context.Context, cfg *cfg.Config) *WechatClient {
 			return fmt.Sprintf("%s\n%s", req, res)
 		})
 
-	return &WechatClient{
-		ctx:        ctx,
+	w := &WechatClient{
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
-		sendChan:   make(chan SendMessage, 5),
 		// ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
 	}
+	return w, nil
 }
 
 /* Login Wechat account */
-func (w *WechatClient) Init() error {
-	loginCtx, cancel := context.WithTimeout(w.ctx, 2*time.Minute)
+func (w *WechatClient) login(ctx context.Context) error {
+	if w.cfg.Token == "" {
+		return nil
+	}
+	loginCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	ticker := time.NewTicker(2 * time.Second)
 	loginNotify := make(chan int, 1)
 	defer ticker.Stop()
@@ -110,27 +109,21 @@ func (w *WechatClient) Init() error {
 	}
 }
 
-func (w *WechatClient) AddMessageHandler(handler func(ctx context.Context, msg *WechatMessage) bool) {
+type WechatMessageHandler = func(ctx context.Context, msg client.GenericMessage) bool
+
+func (w *WechatClient) AddMessageHandler(handler WechatMessageHandler) {
 	w.handlers = append(w.handlers, handler)
 }
 
-func (w *WechatClient) processSend() {
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case message := <-w.sendChan:
-			res := &ApiResult{}
-			if _, err := w.doPostAPICall(message.GetUri(), message, res); err != nil {
-				logger.Error("Failed to send message", slog.Any("message", message), slog.Any("error", err))
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}
-}
+// func (w *WechatClient) processSend(sendChan chan SendMessage) {
 
-func (w *WechatClient) Run() error {
-	go w.processSend()
+// }
+
+func (w *WechatClient) Start(ctx context.Context) error {
+	w.httpClient.SetContext(ctx)
+	if err := w.login(ctx); err != nil {
+		return err
+	}
 	w.self, _ = w.GetProfile()
 	logger.Info("Self profile", slog.Any("self", w.self))
 	switch w.cfg.PushType {
@@ -138,9 +131,9 @@ func (w *WechatClient) Run() error {
 		w.SetWebhook()
 		return w.StartWebhookServer()
 	case cfg.PushTypeWebSocket:
-		w.ws = client.NewClient[WechatSyncMessage](w.ctx, fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
-		return w.ws.Run(func(ctx context.Context, msg *WechatSyncMessage) {
-			message := msg.Parse(w.self.UserInfo.UserName.Str)
+		w.ws = client.NewClient[WechatSyncMessage](fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
+		return w.ws.Run(ctx, func(msg *WechatSyncMessage) {
+			message := msg.Parse()
 			for _, handler := range w.handlers {
 				if handler(ctx, message) {
 					return
@@ -152,11 +145,11 @@ func (w *WechatClient) Run() error {
 	}
 }
 
-func (w *WechatClient) Dispose() {
-	if w.ws != nil {
-		w.ws.Close()
+func (w *WechatClient) GetSelfUserId() string {
+	if w.self == nil {
+		panic("wechat client is not started yet")
 	}
-	close(w.sendChan)
+	return w.self.UserInfo.UserName.Str
 }
 
 func (w *WechatClient) doGetAPICall(url string, res any) (*R.Response, error) {

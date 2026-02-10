@@ -26,7 +26,7 @@ type Config struct {
 type AppConfig struct {
 	Debug    bool        `mapstructure:"debug"`
 	LogLevel string      `mapstructure:"logLevel"`
-	Admin    string      `mapstructure:"admin"`
+	Admin    []string    `mapstructure:"admin"`
 	SyncCron string      `mapstructure:"syncCron"`
 	Redis    RedisConfig `mapstructure:"redis"`
 }
@@ -112,10 +112,6 @@ func LoadConfig(configPath string) (*Config, error) {
 	var config Config
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("unable to decode config into struct: %w", err)
-	}
-
-	if config.Wechat.Token == "" {
-		return nil, fmt.Errorf("wechat token is required")
 	}
 
 	if config.Jiadan.MaxSyncCount < 1 {

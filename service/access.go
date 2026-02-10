@@ -2,7 +2,7 @@ package service
 
 import (
 	"focalors-go/db"
-	"focalors-go/wechat"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -67,14 +67,12 @@ func NewAccess(accessType string) Access {
 }
 
 type AccessService struct {
-	w     *wechat.WechatClient
 	redis *db.Redis
-	admin string
+	admin []string
 }
 
-func NewAccessService(w *wechat.WechatClient, redis *db.Redis, admin string) *AccessService {
+func NewAccessService(redis *db.Redis, admin []string) *AccessService {
 	return &AccessService{
-		w:     w,
 		redis: redis,
 		admin: admin,
 	}
@@ -97,7 +95,7 @@ func (a *AccessService) ListAll() ([]AccessItem, error) {
 	var results []AccessItem
 	for _, key := range keys {
 		target := strings.TrimPrefix(key, "access:")
-		perm, err := a.GetAccess(wechat.NewTarget(target))
+		perm, err := a.GetAccess(target)
 		if err != nil {
 			return nil, err
 		}
@@ -109,8 +107,8 @@ func (a *AccessService) ListAll() ([]AccessItem, error) {
 	return results, nil
 }
 
-func (a *AccessService) GetAccess(target wechat.WechatTarget) (Access, error) {
-	key := getKey(target.GetTarget())
+func (a *AccessService) GetAccess(user string) (Access, error) {
+	key := getKey(user)
 	stored, err := a.redis.Get(key)
 	// redis.Nil represents a missing key
 	if err == redis.Nil {
@@ -123,47 +121,47 @@ func (a *AccessService) GetAccess(target wechat.WechatTarget) (Access, error) {
 	return Access(mask), err
 }
 
-func (a *AccessService) SetAccess(target wechat.WechatTarget, access Access) error {
-	if a.IsAdmin(target) {
+func (a *AccessService) SetAccess(user string, access Access) error {
+	if a.IsAdmin(user) {
 		return nil
 	}
-	key := getKey(target.GetTarget())
+	key := getKey(user)
 	return a.redis.Set(key, strconv.Itoa(int(access)), 0)
 }
 
-func (a *AccessService) AddAccess(target wechat.WechatTarget, access Access) error {
-	if a.IsAdmin(target) {
+func (a *AccessService) AddAccess(user string, access Access) error {
+	if a.IsAdmin(user) {
 		return nil
 	}
-	currentAccess, err := a.GetAccess(target)
+	currentAccess, err := a.GetAccess(user)
 	if err != nil {
 		return err
 	}
-	return a.SetAccess(target, currentAccess|access)
+	return a.SetAccess(user, currentAccess|access)
 }
 
-func (a *AccessService) DelAccess(target wechat.WechatTarget, access Access) error {
-	if a.IsAdmin(target) {
+func (a *AccessService) DelAccess(user string, access Access) error {
+	if a.IsAdmin(user) {
 		return nil
 	}
-	currentAccess, err := a.GetAccess(target)
+	currentAccess, err := a.GetAccess(user)
 	if err != nil {
 		return err
 	}
-	return a.SetAccess(target, currentAccess&^access)
+	return a.SetAccess(user, currentAccess&^access)
 }
 
-func (a *AccessService) HasAccess(target wechat.WechatTarget, access Access) (bool, error) {
-	if a.IsAdmin(target) {
+func (a *AccessService) HasAccess(user string, access Access) (bool, error) {
+	if a.IsAdmin(user) {
 		return true, nil
 	}
-	currentAccess, err := a.GetAccess(target)
+	currentAccess, err := a.GetAccess(user)
 	if err != nil {
 		return false, err
 	}
 	return currentAccess&access != 0, nil
 }
 
-func (a *AccessService) IsAdmin(target wechat.WechatTarget) bool {
-	return target.GetTarget() == a.admin
+func (a *AccessService) IsAdmin(user string) bool {
+	return slices.Contains(a.admin, user)
 }

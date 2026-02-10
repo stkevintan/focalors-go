@@ -9,6 +9,18 @@ type GroupContactDetailModel struct {
 	NewChatRoomData ChatRoomData `json:"newChatRoomData"`
 }
 
+func (g *GroupContactDetailModel) Username() string {
+	return g.UserName.Str
+}
+
+func (g *GroupContactDetailModel) Nickname() string {
+	return g.NickName.Str
+}
+
+func (g *GroupContactDetailModel) AvatarUrl() string {
+	return g.SmallHeadImgUrl
+}
+
 // more room specific fields
 func (w *WechatClient) GetChatRoomInfo(rooms ...string) (*GetContactDetailsApiResult[GroupContactDetailModel], error) {
 	res := &GetContactDetailsApiResult[GroupContactDetailModel]{}

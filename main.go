@@ -5,12 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"focalors-go/config"
-	"focalors-go/db"
 	"focalors-go/middlewares"
-	"focalors-go/scheduler"
 	"focalors-go/slogger"
 	"focalors-go/wechat"
-	"focalors-go/yunzai"
 	"log"
 	"log/slog"
 	"os"
@@ -76,37 +73,27 @@ func main() {
 
 	// Create a cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	w, err := wechat.NewWechat(cfg)
 
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	if err != nil {
+		logger.Error("Failed to create Wechat client", slog.Any("error", err))
+		return
+	}
 
-	// Start a goroutine to handle shutdown signals
-	go func() {
-		sig := <-sigChan
-		logger.Info("Received shutdown signal", slog.String("signal", sig.String()))
-		logger.Info("Initiating graceful shutdown...")
-		cancel() // Cancel the context to signal all components to stop
-	}()
+	go w.Start(ctx)
 
-	w := wechat.NewWechat(ctx, cfg)
-	w.Init()
-	y := yunzai.NewYunzai(ctx, cfg)
-	redis := db.NewRedis(ctx, &cfg.App.Redis)
-	defer redis.Close()
-	cron := scheduler.NewCronTask(redis)
-	cron.Start()
-	defer cron.Stop()
+	mctx := middlewares.NewMiddlewareContext(ctx, w, cfg)
+	defer mctx.Close()
 
-	m := middlewares.NewRootMiddleware(w, redis, cron, cfg)
+	m := middlewares.NewRootMiddleware(mctx)
+
 	m.AddMiddlewares(
 		middlewares.NewLogMsgMiddleware,
 		middlewares.NewAdminMiddleware,
 		middlewares.NewAccessMiddleware,
 		middlewares.NewJiadanMiddleware,
 		middlewares.NewOpenAIMiddleware,
-		middlewares.NewBridgeMiddlewareFactory(y),
+		middlewares.NewBridgeMiddleware,
 	)
 
 	if err := m.Start(); err != nil {
@@ -115,32 +102,11 @@ func main() {
 	}
 	defer m.Stop()
 
-	select {
-	case err := <-runServiceAsync(y, w):
-		logger.Error("Service failed", slog.Any("error", err))
-		cancel()
-	case <-ctx.Done():
-		logger.Info("Context cancelled, shutting down...")
-		return
-	}
-}
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-type Service interface {
-	// Run must be blocked until the service is stopped
-	Run() error
-	// Dispose is called when the service is stopped
-	Dispose()
-}
-
-func runServiceAsync(services ...Service) <-chan error {
-	errChan := make(chan error, len(services))
-	for _, service := range services {
-		go func(service Service) {
-			defer service.Dispose()
-			if err := service.Run(); err != nil {
-				errChan <- err
-			}
-		}(service)
-	}
-	return errChan
+	sig := <-sigChan
+	logger.Info("Received shutdown signal", slog.String("signal", sig.String()))
+	cancel()
 }

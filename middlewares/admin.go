@@ -3,30 +3,30 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/wechat"
+	"focalors-go/client"
 	"log/slog"
 	"strings"
 )
 
 type adminMiddleware struct {
-	*middlewareBase
+	*MiddlewareContext
 }
 
-func NewAdminMiddleware(base *middlewareBase) Middleware {
+func NewAdminMiddleware(base *MiddlewareContext) Middleware {
 	return &adminMiddleware{
-		middlewareBase: base,
+		MiddlewareContext: base,
 	}
 }
 
-func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMessage) bool {
-	if !a.access.IsAdmin(msg) {
+func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+	if !a.access.IsAdmin(msg.GetTarget()) {
 		return false
 	}
-	if fs := msg.ToFlagSet("admin"); fs != nil {
+	if fs := client.ToFlagSet(msg, "admin"); fs != nil {
 		var topic string
 		fs.StringVar(&topic, "s", "", "topic: cron, access")
 		if help := fs.Parse(); help != "" {
-			a.SendText(msg, help)
+			a.client.SendText(msg, help)
 			return true
 		}
 		switch topic {
@@ -35,17 +35,17 @@ func (a *adminMiddleware) OnMessage(_ctx context.Context, msg *wechat.WechatMess
 		case "access":
 			return a.onAdminMessage(msg)
 		default:
-			a.SendText(msg, "未知主题")
+			a.client.SendText(msg, "未知主题")
 			return true
 		}
 	}
 	return false
 }
-func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) onAdminMessage(msg client.GenericMessage) bool {
 	targetAndPerms, err := a.access.ListAll()
 	if err != nil {
 		logger.Warn("Failed to list target and perm", slog.Any("error", err))
-		a.SendText(msg, "获取权限列表失败")
+		a.client.SendText(msg, "获取权限列表失败")
 		return true
 	}
 	var text strings.Builder
@@ -56,15 +56,11 @@ func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
 	for _, entry := range targetAndPerms {
 		wxids = append(wxids, entry.Target)
 	}
-	contacts, err := a.GetGeneralContactDetails(wxids...)
-	if err != nil {
+	if contacts, err := a.client.GetContactDetail(wxids...); err != nil {
 		logger.Warn("Failed to get contact details", slog.Any("error", err))
 	} else {
-		for _, contact := range contacts.Users {
-			nicknameMap[contact.UserName.Str] = contact.NickName.Str
-		}
-		for _, contact := range contacts.Rooms {
-			nicknameMap[contact.UserName.Str] = contact.NickName.Str
+		for _, contact := range contacts {
+			nicknameMap[contact.Username()] = contact.Nickname()
 		}
 	}
 
@@ -82,14 +78,14 @@ func (a *adminMiddleware) onAdminMessage(msg *wechat.WechatMessage) bool {
 	if response == "" {
 		response = "没有权限分配"
 	}
-	a.SendText(msg, response)
+	a.client.SendText(msg, response)
 	return true
 }
 
-func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
+func (a *adminMiddleware) onCronTask(msg client.GenericMessage) bool {
 	tasks := a.cron.TaskEntries()
 	if len(tasks) == 0 {
-		a.SendText(msg, "没有定时任务")
+		a.client.SendText(msg, "没有定时任务")
 		return true
 	}
 	var nicknameMap = make(map[string]string, len(tasks)) // Pre-allocate capacity
@@ -97,15 +93,11 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 	for _, entry := range tasks {
 		wxids = append(wxids, entry.Wxid)
 	}
-	contacts, err := a.GetGeneralContactDetails(wxids...)
-	if err != nil {
+	if contacts, err := a.client.GetContactDetail(wxids...); err != nil {
 		logger.Warn("Failed to get contact details", slog.Any("error", err))
 	} else {
-		for _, contact := range contacts.Users {
-			nicknameMap[contact.UserName.Str] = contact.NickName.Str
-		}
-		for _, contact := range contacts.Rooms {
-			nicknameMap[contact.UserName.Str] = contact.NickName.Str
+		for _, contact := range contacts {
+			nicknameMap[contact.Username()] = contact.Nickname()
 		}
 	}
 	// Pre-allocate string builder with estimated capacity
@@ -121,6 +113,6 @@ func (a *adminMiddleware) onCronTask(msg *wechat.WechatMessage) bool {
 		text.WriteString(fmt.Sprintf("下次执行: %s \n", task.Next.Format("2006-01-02 15:04:05")))
 		text.WriteString("\n")
 	}
-	a.SendText(msg, text.String())
+	a.client.SendText(msg, text.String())
 	return true
 }

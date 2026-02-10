@@ -1,6 +1,9 @@
 package wechat
 
-import "strings"
+import (
+	"focalors-go/client"
+	"strings"
+)
 
 type BatchGetContactModel struct {
 	UserNames    []string
@@ -88,4 +91,31 @@ func (w *WechatClient) GetGeneralContactDetails(ids ...string) (*GetContactDetai
 		res.Rooms = roomRes.Data.ContactList
 	}
 	return res, nil
+}
+
+func (c *UserContactDetailModel) AvatarUrl() string {
+	return c.SmallHeadImgUrl
+}
+
+func (c *UserContactDetailModel) Nickname() string {
+	return c.NickName.Str
+}
+
+func (c *UserContactDetailModel) Username() string {
+	return c.UserName.Str
+}
+
+func (w *WechatClient) GetContactDetail(id ...string) ([]client.Contact, error) {
+	details, err := w.GetGeneralContactDetails(id...)
+	if err != nil {
+		return nil, err
+	}
+	contacts := make([]client.Contact, 0, len(details.Users)+len(details.Rooms))
+	for i := range details.Users {
+		contacts = append(contacts, &details.Users[i])
+	}
+	for i := range details.Rooms {
+		contacts = append(contacts, &details.Rooms[i])
+	}
+	return contacts, nil
 }
