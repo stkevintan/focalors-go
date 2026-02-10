@@ -4,11 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"focalors-go/slogger"
 	"log/slog"
 	"strings"
 
 	"github.com/google/shlex"
 )
+
+var contractLogger = slogger.New("client.contract")
 
 type MessageFlagSet struct {
 	*flag.FlagSet
@@ -31,7 +34,7 @@ func (m *MessageFlagSet) Parse() string {
 			m.Usage()
 			return usageBuf.String()
 		}
-		logger.Error("failed to parse command", slog.Any("error", err))
+		contractLogger.Error("failed to parse command", slog.Any("error", err))
 		return fmt.Sprintf("解析失败，发送`#%s -h` 获得帮助", m.Name())
 	}
 	return ""

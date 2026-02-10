@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var logger = slogger.New("client")
+var wsLogger = slogger.New("client.websocket")
 
 // A websocket client
 type WebSocketClient[Message any] struct {
@@ -36,23 +36,23 @@ func (c *WebSocketClient[Message]) Connect() error {
 	conn, _, err := websocket.DefaultDialer.Dial(c.Url, nil)
 	if err != nil {
 		c.Conn = nil // Ensure Conn is nil on failure
-		logger.Error("[WebSocket] Failed to dial", slog.String("url", c.Url), slog.Any("error", err))
+		wsLogger.Error("[WebSocket] Failed to dial", slog.String("url", c.Url), slog.Any("error", err))
 		return err
 	}
 
 	c.Conn = conn
-	logger.Info("[WebSocket] Successfully connected.", slog.String("url", c.Url))
+	wsLogger.Info("[WebSocket] Successfully connected.", slog.String("url", c.Url))
 	return nil
 }
 
 func (c *WebSocketClient[Message]) Send(message any) error {
 	if c.Conn == nil {
-		logger.Error("[WebSocket] Connection is nil, cannot send message.", slog.String("url", c.Url))
+		wsLogger.Error("[WebSocket] Connection is nil, cannot send message.", slog.String("url", c.Url))
 		return errors.New("connection is nil")
 	}
 	err := c.Conn.WriteJSON(message)
 	if err != nil {
-		logger.Error("[WebSocket] Failed to write JSON", slog.String("url", c.Url), slog.Any("error", err))
+		wsLogger.Error("[WebSocket] Failed to write JSON", slog.String("url", c.Url), slog.Any("error", err))
 		return err
 	}
 	return nil
@@ -63,15 +63,15 @@ func (c *WebSocketClient[Message]) Listen(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("[WebSocket] Context done, exiting message loop.")
+			wsLogger.Info("[WebSocket] Context done, exiting message loop.")
 			c.close() // Ensure connection is closed and status updated on context done
 			return ctx.Err()
 		default:
 			var message Message
 			if c.Conn == nil {
-				logger.Warn("[WebSocket] Connection is nil, attempting to reconnect.", slog.String("url", c.Url))
+				wsLogger.Warn("[WebSocket] Connection is nil, attempting to reconnect.", slog.String("url", c.Url))
 				if err := c.Connect(); err != nil {
-					logger.Error("[WebSocket] Failed to reconnect", slog.String("url", c.Url), slog.Any("error", err))
+					wsLogger.Error("[WebSocket] Failed to reconnect", slog.String("url", c.Url), slog.Any("error", err))
 					time.Sleep(2 * time.Second) // Sleep before reconnecting
 					continue
 				}
@@ -85,16 +85,16 @@ func (c *WebSocketClient[Message]) Listen(ctx context.Context) error {
 				case c.messageBuffer <- message:
 					// Message sent successfully
 				case <-ctx.Done():
-					logger.Info("[WebSocket] Context done while attempting to send message to channel.", slog.String("url", c.Url))
+					wsLogger.Info("[WebSocket] Context done while attempting to send message to channel.", slog.String("url", c.Url))
 					return ctx.Err()
 				case <-time.After(1 * time.Second): // Timeout to prevent blocking Listen indefinitely
-					logger.Warn("[WebSocket] Timeout sending message to processing channel. Channel might be full or processor stuck.", slog.String("url", c.Url))
+					wsLogger.Warn("[WebSocket] Timeout sending message to processing channel. Channel might be full or processor stuck.", slog.String("url", c.Url))
 				}
 				continue
 			}
 
 			if isTerminalError(err) {
-				logger.Warn("[WebSocket] Terminal error occurred", slog.String("url", c.Url), slog.Any("error", err))
+				wsLogger.Warn("[WebSocket] Terminal error occurred", slog.String("url", c.Url), slog.Any("error", err))
 				c.Conn = nil // Reset connection
 				continue
 			}
@@ -105,12 +105,12 @@ func (c *WebSocketClient[Message]) Listen(ctx context.Context) error {
 
 func (c *WebSocketClient[Message]) close() {
 	if c.Conn != nil {
-		logger.Info("[WebSocket] Closing connection.", slog.String("url", c.Url))
+		wsLogger.Info("[WebSocket] Closing connection.", slog.String("url", c.Url))
 		c.Conn.Close() // Attempt to close
 		c.Conn = nil
 	}
 	c.wg.Wait() // Wait for message processing to finish
-	logger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
+	wsLogger.Info("[WebSocket] Connection closed.", slog.String("url", c.Url))
 }
 
 func (c *WebSocketClient[Message]) Run(ctx context.Context, OnMessage func(msg *Message)) error {
@@ -124,11 +124,11 @@ func (c *WebSocketClient[Message]) processMessages(ctx context.Context, OnMessag
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("[WebSocket] Context done, exiting message processing loop.")
+			wsLogger.Info("[WebSocket] Context done, exiting message processing loop.")
 			return
 		case message, ok := <-c.messageBuffer:
 			if !ok {
-				logger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
+				wsLogger.Warn("[WebSocket] Message buffer closed, exiting message processing loop.")
 				return
 			}
 			OnMessage(&message)
@@ -138,13 +138,13 @@ func (c *WebSocketClient[Message]) processMessages(ctx context.Context, OnMessag
 
 func isTerminalError(err error) bool {
 	if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-		logger.Info("[WebSocket] Connection closed by peer (CloseError)", slog.Any("error", err))
+		wsLogger.Info("[WebSocket] Connection closed by peer (CloseError)", slog.Any("error", err))
 		return true
 	} else if _, ok := err.(*net.OpError); ok || // Covers many net errors
 		errors.Is(err, net.ErrClosed) || // Explicitly check for net.ErrClosed
 		strings.Contains(err.Error(), "use of closed network connection") ||
 		err.Error() == "EOF" { // EOF can also indicate a closed connection
-		logger.Error("[WebSocket] Network error or closed connection during ReadJSON", slog.Any("error", err))
+		wsLogger.Error("[WebSocket] Network error or closed connection during ReadJSON", slog.Any("error", err))
 		return true
 	}
 	return false
