@@ -321,27 +321,26 @@ func (l *LarkClient) GetContactDetail(userId ...string) ([]client.Contact, error
 		return nil, nil
 	}
 
+	// Use Contact BatchGet API to get multiple users at once
+	// Requires `contact:user.base:readonly` permission
+	req := larkcontact.NewBatchUserReqBuilder().
+		UserIds(userId).
+		UserIdType("open_id").
+		Build()
+
+	resp, err := l.sdk.Contact.V3.User.Batch(context.Background(), req)
+	if err != nil {
+		logger.Warn("failed to batch get user info", slog.Any("error", err))
+		return nil, err
+	}
+	if !resp.Success() {
+		logger.Warn("failed to batch get user info", slog.Int("code", resp.Code), slog.String("msg", resp.Msg))
+		return nil, fmt.Errorf("batch get user failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+
 	var contacts []client.Contact
-	for _, uid := range userId {
-		// Use Contact API to get user info including avatar
-		// Requires `contact:user.base:readonly` permission
-		req := larkcontact.NewGetUserReqBuilder().
-			UserId(uid).
-			UserIdType("open_id").
-			Build()
-
-		resp, err := l.sdk.Contact.V3.User.Get(context.Background(), req)
-		if err != nil {
-			logger.Warn("failed to get user info", slog.Any("error", err), slog.String("userId", uid))
-			continue
-		}
-		if !resp.Success() {
-			logger.Warn("failed to get user info", slog.Int("code", resp.Code), slog.String("msg", resp.Msg))
-			continue
-		}
-
-		if resp.Data != nil && resp.Data.User != nil {
-			user := resp.Data.User
+	if resp.Data != nil {
+		for _, user := range resp.Data.Items {
 			avatarUrl := ""
 			if user.Avatar != nil && user.Avatar.AvatarOrigin != nil {
 				avatarUrl = *user.Avatar.AvatarOrigin
