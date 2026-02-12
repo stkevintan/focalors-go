@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"focalors-go/client"
+	"focalors-go/db"
 	"focalors-go/service"
 	"focalors-go/tooling"
 	"log/slog"
@@ -32,7 +33,8 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 	// Create tool registry and register tools
 	registry := tooling.NewRegistry()
 	registry.Register(tooling.NewWeatherTool(service.NewWeatherService(&base.cfg.Weather)))
-	registry.Register(tooling.NewJiadanTool(service.NewJiadanService(base.redis)))
+	jiandanStore := db.NewJiandanStore(base.redis)
+	registry.Register(tooling.NewJiadanTool(service.NewJiadanService(jiandanStore)))
 
 	return &OpenAIMiddleware{
 		MiddlewareContext: base,

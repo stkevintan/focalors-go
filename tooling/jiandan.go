@@ -70,42 +70,23 @@ func (j *JiadanTool) Execute(ctx context.Context, argsJSON string) (*ToolResult,
 	if target == "" {
 		target = "gpt"
 	}
-	targetKey := "jiandan:" + target
-	skipChecker := j.jiadan.CreateSkipChecker(targetKey, false)
-	posts, err := j.jiadan.GetTopPosts(count, 0, skipChecker)
+	images, err := j.jiadan.FetchNewImages(target, count)
 	if err != nil {
 		logger.Error("Failed to fetch Jiandan posts", slog.Any("error", err))
 		return NewToolResult("Failed to fetch Jiandan posts"), nil
 	}
 
-	if len(posts) == 0 {
+	if len(images) == 0 {
 		return NewToolResult("No posts found on Jiandan"), nil
 	}
 
-	// Build result with interleaved text and images
-	result := NewToolResult(fmt.Sprintf("Found %d posts from 煎蛋无聊图", len(posts)))
-	result.AddText(fmt.Sprintf("**煎蛋无聊图** (%d张)", len(posts)))
-
-	for i, post := range posts {
-		// Mark as visited
-		j.jiadan.SaveVisited(targetKey+":"+post.CommentId, post)
-
-		// Add post info
+	// Build result with post metadata and images
+	result := NewToolResult(fmt.Sprintf("Found %d posts from 煎蛋无聊图", len(images)))
+	result.AddText(fmt.Sprintf("**煎蛋无聊图** (%d帖)", len(images)))
+	for i, post := range images {
 		result.AddText(fmt.Sprintf("**%d.** %s (%s) 👍%s 👎%s",
 			i+1, post.CommentAuthor, post.CommentDate, post.VotePositive, post.VoteNegative))
-
-		// Download and add images for this post
-		urls := service.GetImageURLs(post)
-		images, err := j.jiadan.DownloadImages(urls)
-		if err != nil {
-			logger.Warn("Failed to download images for post", slog.String("postId", post.CommentId), slog.Any("error", err))
-			result.AddText("糟糕,图片下载失败 \\`(╥﹏╥)\\`  \n")
-			for i, url := range urls {
-				result.AddText(fmt.Sprintf("- ![原图链接%d](%s)\n", i+1, url))
-			}
-			continue
-		}
-		for _, img := range images {
+		for _, img := range post.Images {
 			result.AddImage(img, "煎蛋无聊图")
 		}
 	}

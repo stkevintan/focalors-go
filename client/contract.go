@@ -77,6 +77,8 @@ type GenericMessage interface {
 	IsGroup() bool
 	// Is a text message, as opposed to image, video, etc. Only text messages can be parsed into flag sets
 	IsText() bool
+	// IsImage returns true if the message is an image message
+	IsImage() bool
 	// GetReferMessage returns the message being replied to, if any
 	GetReferMessage() (referMsg GenericMessage, ok bool)
 	// GetMentionedUserIds() []string
@@ -189,6 +191,8 @@ type GenericClient interface {
 	// 获取用户或群的基本信息, 包括昵称、头像等
 	GetContactDetail(userId ...string) ([]Contact, error)
 	GetSelfUserId() string
+	// 下载消息中的图片，返回 base64 编码
+	DownloadMessageImage(msgId string) (base64Content string, err error)
 }
 
 // SendText sends a simple text message using RichCard
