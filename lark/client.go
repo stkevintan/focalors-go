@@ -10,6 +10,7 @@ import (
 	"focalors-go/config"
 	"focalors-go/db"
 	"focalors-go/slogger"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -370,4 +371,54 @@ func (c *LarkContact) AvatarUrl() string { return c.avatarUrl }
 
 func (l *LarkClient) GetSelfUserId() string {
 	return l.cfg.AppID
+}
+
+func (l *LarkClient) DownloadMessageImage(msgId string) (string, error) {
+	// Get message to extract image_key
+	req := larkim.NewGetMessageReqBuilder().MessageId(msgId).Build()
+	resp, err := l.sdk.Im.V1.Message.Get(context.Background(), req)
+	if err != nil {
+		return "", fmt.Errorf("failed to get message: %w", err)
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("failed to get message: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+
+	// Parse image_key from message content
+	var content struct {
+		ImageKey string `json:"image_key"`
+	}
+	if resp.Data != nil && resp.Data.Items != nil && len(resp.Data.Items) > 0 {
+		msg := resp.Data.Items[0]
+		if msg.Body != nil && msg.Body.Content != nil {
+			if err := json.Unmarshal([]byte(*msg.Body.Content), &content); err != nil {
+				return "", fmt.Errorf("failed to parse image content: %w", err)
+			}
+		}
+	}
+
+	if content.ImageKey == "" {
+		return "", fmt.Errorf("no image_key found in message")
+	}
+
+	// Download image using image_key
+	imgReq := larkim.NewGetMessageResourceReqBuilder().
+		MessageId(msgId).
+		FileKey(content.ImageKey).
+		Type("image").
+		Build()
+	imgResp, err := l.sdk.Im.V1.MessageResource.Get(context.Background(), imgReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to download image: %w", err)
+	}
+	if !imgResp.Success() {
+		return "", fmt.Errorf("failed to download image: code=%d, msg=%s", imgResp.Code, imgResp.Msg)
+	}
+
+	// Read image data and encode to base64
+	data, err := io.ReadAll(imgResp.File)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image data: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
 }

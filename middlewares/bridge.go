@@ -2,8 +2,8 @@ package middlewares
 
 import (
 	"context"
-	"fmt"
 	"focalors-go/client"
+	"focalors-go/db"
 	"focalors-go/yunzai"
 	"log/slog"
 	"regexp"
@@ -13,7 +13,7 @@ import (
 type bridgeMiddleware struct {
 	*MiddlewareContext
 	y           *yunzai.YunzaiClient
-	avatarCache map[string]string
+	avatarStore *db.AvatarStore
 }
 
 func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
@@ -22,7 +22,7 @@ func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
 	return &bridgeMiddleware{
 		MiddlewareContext: base,
 		y:                 y,
-		avatarCache:       make(map[string]string),
+		avatarStore:       db.NewAvatarStore(base.redis),
 	}
 }
 
@@ -36,6 +36,7 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.GetText()) {
 		return false
 	}
+
 	b.updateAvatarCache(msg)
 
 	userType := "direct"
@@ -142,27 +143,14 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 			logger.Warn("Unsupported message type", slog.Any("content", content))
 		}
 	}
-if len(card.Elements) > 0 {
+	if len(card.Elements) > 0 {
 		b.client.SendRichCard(msg, card)
 	}
 	return false
 }
 
 func (b *bridgeMiddleware) createSender(message client.GenericMessage) map[string]any {
-	key := fmt.Sprintf("avatar:%s", message.GetUserId())
-	if avatar, ok := b.avatarCache[key]; ok {
-		return map[string]any{
-			"avatar": avatar,
-		}
-	}
-	avatar, err := b.redis.Get(key)
-	if err != nil {
-		logger.Error("Failed to get avatar result from Redis command", slog.String("key", key), slog.Any("error", err))
-		return nil
-	}
-
-	if avatar != "" {
-		b.avatarCache[key] = avatar // Update the cache
+	if avatar, ok := b.avatarStore.Get(message.GetUserId()); ok {
 		return map[string]any{
 			"avatar": avatar,
 		}
@@ -179,10 +167,7 @@ func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
 			return
 		}
 		for _, contact := range contacts {
-			headUrl := contact.AvatarUrl()
-			key := fmt.Sprintf("avatar:%s", contact.Username())
-			b.avatarCache[key] = headUrl
-			b.redis.Set(key, headUrl, 0)
+			b.avatarStore.Save(contact.Username(), contact.AvatarUrl())
 		}
 		b.SendText(msg, "头像已更新")
 	}

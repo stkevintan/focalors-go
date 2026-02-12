@@ -95,6 +95,10 @@ func (m *LarkMessage) IsText() bool {
 	return m.msgType == "text"
 }
 
+func (m *LarkMessage) IsImage() bool {
+	return m.msgType == "image"
+}
+
 func (m *LarkMessage) GetReferMessage() (client.GenericMessage, bool) {
 	return nil, false
 }

@@ -157,6 +157,26 @@ func (w *WechatClient) RecallMessage(messageId string) error {
 	return nil
 }
 
+func (w *WechatClient) DownloadMessageImage(msgId string) (string, error) {
+	type GetMsgImageResult struct {
+		Code int `json:"Code"`
+		Data struct {
+			ImageBase64 string `json:"image_base64"`
+		} `json:"Data"`
+	}
+	res := &GetMsgImageResult{}
+	id, _ := strconv.ParseInt(msgId, 10, 64)
+	if _, err := w.doPostAPICall("/message/GetMsgImage", map[string]any{
+		"MsgId": id,
+	}, res); err != nil {
+		return "", fmt.Errorf("failed to get message image: %w", err)
+	}
+	if res.Data.ImageBase64 == "" {
+		return "", fmt.Errorf("no image data returned for message %s", msgId)
+	}
+	return res.Data.ImageBase64, nil
+}
+
 func (w *WechatClient) UploadImage(base64Content string) (string, error) {
 	// WeChat doesn't have separate image upload, return the base64 content as-is
 	// It will be sent directly in SendRichCard
@@ -410,6 +430,10 @@ func (w *WechatMessage) IsPrivate() bool {
 
 func (w *WechatMessage) IsText() bool {
 	return w.Text != ""
+}
+
+func (w *WechatMessage) IsImage() bool {
+	return w.MsgType == ImageMessage
 }
 
 func (w *WechatMessage) IsCommand() bool {

@@ -99,6 +99,7 @@ func main() {
 		middlewares.NewLogMsgMiddleware,
 		middlewares.NewAdminMiddleware,
 		middlewares.NewAccessMiddleware,
+		middlewares.NewAvatarMiddleware,
 		middlewares.NewJiadanMiddleware,
 		middlewares.NewBridgeMiddleware,
 		middlewares.NewOpenAIMiddleware,

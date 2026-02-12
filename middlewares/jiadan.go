@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"focalors-go/client"
+	"focalors-go/db"
 	"focalors-go/scheduler"
 	"focalors-go/service"
 	"log/slog"
@@ -21,7 +22,7 @@ type jiadanMiddleware struct {
 func NewJiadanMiddleware(base *MiddlewareContext) Middleware {
 	return &jiadanMiddleware{
 		MiddlewareContext: base,
-		jiadan:            service.NewJiadanService(base.redis),
+		jiadan:            service.NewJiadanService(db.NewJiandanStore(base.redis)),
 	}
 }
 
@@ -62,17 +63,17 @@ func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 
 		// 手动同步
 		if cron == "" {
-			base64Images, err := j.jiadan.FetchNewImages(getKey(msg.GetTarget()), top, false)
+			posts, err := j.jiadan.FetchNewImages(msg.GetTarget(), top)
 			if err != nil {
 				logger.Error("Failed to get Jiadan images", slog.Any("error", err))
 				sender.SendMarkdown("获取煎蛋失败")
 				return true
 			}
-			if len(base64Images) == 0 {
+			if len(posts) == 0 {
 				sender.SendMarkdown("没有找到新的煎蛋无聊图")
 				return true
 			}
-			card := j.buildJiadanCard(base64Images)
+			card := j.buildJiadanCard(posts)
 			sender.SendRichCard(card)
 			return true
 		}
@@ -116,7 +117,7 @@ func (j *jiadanMiddleware) SyncJob() func(ctx map[string]string) error {
 		}
 		logger.Debug("Start jiadan sync job", slog.String("target", target), slog.Int("top", top))
 
-		base64Images, err := j.jiadan.FetchNewImages(getKey(target), top, true)
+		base64Images, err := j.jiadan.FetchNewImages(target, top)
 		if err != nil {
 			return fmt.Errorf("failed to get Jiadan images: %w", err)
 		}
@@ -136,21 +137,29 @@ func (j *jiadanMiddleware) SyncJob() func(ctx map[string]string) error {
 }
 
 // buildJiadanCard creates a card with all jiadan images uploaded
-func (j *jiadanMiddleware) buildJiadanCard(images []string) *client.CardBuilder {
-	card := client.NewCardBuilder().AddMarkdown(fmt.Sprintf("**煎蛋无聊图** (%d张)", len(images)))
-	for _, img := range images {
-		if img == "" {
-			continue
+func (j *jiadanMiddleware) buildJiadanCard(posts []service.JiadanResult) *client.CardBuilder {
+	totalImages := 0
+	for _, p := range posts {
+		totalImages += len(p.Images)
+	}
+	card := client.NewCardBuilder().AddMarkdown(fmt.Sprintf("**煎蛋无聊图** (%d张)", totalImages))
+	for _, post := range posts {
+		card.AddMarkdown(fmt.Sprintf("%s (%s) 👍%s 👎%s",
+			post.CommentAuthor, post.CommentDate, post.VotePositive, post.VoteNegative))
+		for _, img := range post.Images {
+			if img == "" {
+				continue
+			}
+			imageKey, err := j.client.UploadImage(img)
+			if err != nil {
+				logger.Error("Failed to upload jiadan image", slog.Any("error", err))
+				continue
+			}
+			if imageKey == "" {
+				continue
+			}
+			card.AddImage(imageKey, "煎蛋无聊图")
 		}
-		imageKey, err := j.client.UploadImage(img)
-		if err != nil {
-			logger.Error("Failed to upload jiadan image", slog.Any("error", err))
-			continue
-		}
-		if imageKey == "" {
-			continue
-		}
-		card.AddImage(imageKey, "煎蛋无聊图")
 	}
 	return card
 }
