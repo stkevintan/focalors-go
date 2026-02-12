@@ -142,7 +142,7 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 			logger.Warn("Unsupported message type", slog.Any("content", content))
 		}
 	}
-	if card.Elements != nil && len(card.Elements) > 0 {
+if len(card.Elements) > 0 {
 		b.client.SendRichCard(msg, card)
 	}
 	return false
