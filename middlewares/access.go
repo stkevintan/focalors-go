@@ -28,25 +28,25 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		fs.StringVar(&kind, "p", "", "权限类型")
 		fs.StringVar(&target, "u", "", "目标用户wxid, 默认当前群")
 		if help := fs.Parse(); help != "" {
-			a.client.SendText(msg, help)
+			a.SendText(msg, help)
 			return true
 		}
 
 		if kind == "" {
-			a.client.SendText(msg, "请指定权限类型")
+			a.SendText(msg, "请指定权限类型")
 			return true
 		}
 
 		permType := service.NewAccess(kind)
 		if permType == 0 {
-			a.client.SendText(msg, "未知权限类型")
+			a.SendText(msg, "未知权限类型")
 			return true
 		}
 		if target == "" && msg.IsGroup() {
 			target = msg.GetGroupId()
 		}
 		if target == "" {
-			a.client.SendText(msg, "请指定目标用户")
+			a.SendText(msg, "请指定目标用户")
 			return true
 		}
 		nickname := target
@@ -64,20 +64,20 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		switch verb {
 		case "add":
 			if err := a.access.AddAccess(target, permType); err != nil {
-				a.client.SendText(msg, fmt.Sprintf("%s: 添加权限失败: %s", nickname, err.Error()))
+				a.SendText(msg, fmt.Sprintf("%s: 添加权限失败: %s", nickname, err.Error()))
 			} else {
-				a.client.SendText(msg, fmt.Sprintf("%s: 添加权限成功", nickname))
+				a.SendText(msg, fmt.Sprintf("%s: 添加权限成功", nickname))
 			}
 			return true
 		case "del":
 			if err := a.access.DelAccess(target, permType); err != nil {
-				a.client.SendText(msg, fmt.Sprintf("%s: 删除权限失败: %s", nickname, err.Error()))
+				a.SendText(msg, fmt.Sprintf("%s: 删除权限失败: %s", nickname, err.Error()))
 			} else {
-				a.client.SendText(msg, fmt.Sprintf("%s: 删除权限成功", nickname))
+				a.SendText(msg, fmt.Sprintf("%s: 删除权限成功", nickname))
 			}
 			return true
 		default:
-			a.client.SendText(msg, "未知操作")
+			a.SendText(msg, "未知操作")
 			return true
 		}
 	}

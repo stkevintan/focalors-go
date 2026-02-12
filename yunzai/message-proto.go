@@ -20,11 +20,11 @@ type Request struct {
 // Message received by the client
 type Response struct {
 	// BotId      string           `json:"bot_id"`
-	BotSelfId  string           `json:"bot_self_id"`
-	MsgId      string           `json:"msg_id,omitempty"`
-	TargetType string           `json:"target_type"` // direct
-	TargetId   string           `json:"target_id"`   // user_id or group_id
-	Content    []MessageContent `json:"content"`
+	BotSelfId  string `json:"bot_self_id"`
+	TargetType string `json:"target_type"` // direct
+	TargetId   string `json:"target_id"`   // user_id or group_id
+
+	Content []MessageContent `json:"content"`
 }
 
 func (r *Response) GetTarget() string {

@@ -14,6 +14,7 @@ func NewLogMsgMiddleware(_context *MiddlewareContext) Middleware {
 
 func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
 	logger.Info("Received Wechat message",
+		slog.String("MsgId", msg.GetId()),
 		slog.String("FromUserId", msg.GetUserId()),
 		slog.String("FromGroupId", msg.GetGroupId()),
 		// slog.String("ToUserId", msg.GetToUserId()),
