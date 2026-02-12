@@ -26,7 +26,7 @@ func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessa
 		var topic string
 		fs.StringVar(&topic, "s", "", "topic: cron, access")
 		if help := fs.Parse(); help != "" {
-			a.client.SendText(msg, help)
+			a.SendText(msg, help)
 			return true
 		}
 		switch topic {
@@ -35,7 +35,7 @@ func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessa
 		case "access":
 			return a.onAdminMessage(msg)
 		default:
-			a.client.SendText(msg, "未知主题")
+			a.SendText(msg, "未知主题")
 			return true
 		}
 	}
@@ -45,7 +45,7 @@ func (a *adminMiddleware) onAdminMessage(msg client.GenericMessage) bool {
 	targetAndPerms, err := a.access.ListAll()
 	if err != nil {
 		logger.Warn("Failed to list target and perm", slog.Any("error", err))
-		a.client.SendText(msg, "获取权限列表失败")
+		a.SendText(msg, "获取权限列表失败")
 		return true
 	}
 	var text strings.Builder
@@ -78,14 +78,14 @@ func (a *adminMiddleware) onAdminMessage(msg client.GenericMessage) bool {
 	if response == "" {
 		response = "没有权限分配"
 	}
-	a.client.SendText(msg, response)
+	a.SendText(msg, response)
 	return true
 }
 
 func (a *adminMiddleware) onCronTask(msg client.GenericMessage) bool {
 	tasks := a.cron.TaskEntries()
 	if len(tasks) == 0 {
-		a.client.SendText(msg, "没有定时任务")
+		a.SendText(msg, "没有定时任务")
 		return true
 	}
 	var nicknameMap = make(map[string]string, len(tasks)) // Pre-allocate capacity
@@ -113,6 +113,6 @@ func (a *adminMiddleware) onCronTask(msg client.GenericMessage) bool {
 		text.WriteString(fmt.Sprintf("下次执行: %s \n", task.Next.Format("2006-01-02 15:04:05")))
 		text.WriteString("\n")
 	}
-	a.client.SendText(msg, text.String())
+	a.SendText(msg, text.String())
 	return true
 }

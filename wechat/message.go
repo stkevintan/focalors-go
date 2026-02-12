@@ -152,8 +152,55 @@ func (w *WechatClient) SendTextBatch(messages ...*MessageUnit) error {
 	return w.SendMessage(&TextMessageModel{MsgItem: flattenedContent})
 }
 
-func (w *WechatClient) SendText(target client.SendTarget, message ...string) error {
-	return w.SendTextBatch(NewMessageUnit(target, message...))
+func (w *WechatClient) RecallMessage(messageId string) error {
+	// Wechat recall not implemented
+	return nil
+}
+
+func (w *WechatClient) UploadImage(base64Content string) (string, error) {
+	// WeChat doesn't have separate image upload, return the base64 content as-is
+	// It will be sent directly in SendRichCard
+	return base64Content, nil
+}
+
+func (w *WechatClient) SendRichCard(target client.SendTarget, card *client.CardBuilder) (string, error) {
+	// WeChat doesn't support rich cards, send elements as separate messages
+	var lastMsgId string
+	for _, elem := range card.Elements {
+		switch elem.Type {
+		case client.CardElementMarkdown:
+			w.SendTextBatch(NewMessageUnit(target, elem.Content))
+		case client.CardElementImage:
+			w.sendImageDirect(target, elem.Content)
+		case client.CardElementDivider:
+			// Skip dividers for WeChat
+		}
+	}
+	return lastMsgId, nil
+}
+
+func (w *WechatClient) ReplyRichCard(replyToMsgId string, target client.SendTarget, card *client.CardBuilder) (string, error) {
+	// WeChat doesn't support reply-to, just send normally
+	return w.SendRichCard(target, card)
+}
+
+func (w *WechatClient) UpdateRichCard(messageId string, card *client.CardBuilder) error {
+	// WeChat doesn't support card update
+	return fmt.Errorf("not supported")
+}
+
+func (w *WechatClient) sendImageDirect(target client.SendTarget, content string) error {
+	c := strings.TrimPrefix(content, "base64://")
+	c = strings.Trim(c, " \n")
+	if c == "" {
+		return nil
+	}
+	return w.SendMessage(&ImageMessageModel{
+		MsgItem: []ImageMessageItem{{
+			ToUserName:   target.GetTarget(),
+			ImageContent: c,
+		}},
+	})
 }
 
 func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
@@ -172,10 +219,6 @@ func (w *WechatClient) SendImageBatch(messages ...*MessageUnit) error {
 		}
 	}
 	return w.SendMessage(&ImageMessageModel{MsgItem: flattenedContent})
-}
-
-func (w *WechatClient) SendImage(target client.SendTarget, message ...string) error {
-	return w.SendImageBatch(NewMessageUnit(target, message...))
 }
 
 // ==== Received Message =======

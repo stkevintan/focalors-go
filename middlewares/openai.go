@@ -2,10 +2,10 @@ package middlewares
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"focalors-go/client"
 	"focalors-go/service"
+	"focalors-go/tooling"
 	"log/slog"
 	"slices"
 
@@ -15,8 +15,8 @@ import (
 
 type OpenAIMiddleware struct {
 	*MiddlewareContext
-	openai  *openai.Client
-	weather *service.WeatherService
+	openai   *openai.Client
+	registry *tooling.Registry
 }
 
 func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
@@ -29,21 +29,34 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 		azure.WithAPIKey(base.cfg.OpenAI.APIKey),
 	)
 
+	// Create tool registry and register tools
+	registry := tooling.NewRegistry()
+	registry.Register(tooling.NewWeatherTool(service.NewWeatherService(&base.cfg.Weather)))
+	registry.Register(tooling.NewJiadanTool(service.NewJiadanService(base.redis)))
+
 	return &OpenAIMiddleware{
 		MiddlewareContext: base,
 		openai:            &client,
-		weather:           service.NewWeatherService(&base.cfg.Weather),
+		registry:          registry,
 	}
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+	logger.Info("OAI check", slog.Bool("isText", msg.IsText()), slog.String("text", msg.GetText()), slog.Bool("isMentioned", msg.IsMentioned()))
+
 	if !msg.IsText() || msg.GetText() == "" || !msg.IsMentioned() {
 		return false
 	}
+
 	if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
+		logger.Info("User does not have access to GPT", slog.String("target", msg.GetTarget()))
 		return false
 	}
+
 	content := msg.GetText()
+	logger.Info("Received message for OpenAI", slog.String("content", content))
+
+	sender := o.SendPendingReply(msg)
 
 	// get thread
 	messages := []openai.ChatCompletionMessageParamUnion{
@@ -59,91 +72,93 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		}
 	}
 	slices.Reverse(messages)
-	response, err := o.onTextMode(ctx, messages)
+	// Add target to context for tools
+	toolCtx := tooling.WithTarget(ctx, msg.GetTarget())
+	response, contents, err := o.onTextMode(toolCtx, messages)
+
 	if err != nil {
-		o.client.SendText(msg, fmt.Sprintf("糟糕，%s", err.Error()))
+		sender.SendMarkdown(fmt.Sprintf("糟糕，%s", err.Error()))
+		return true
 	}
-	o.client.SendText(msg, response)
+
+	// Build card with response and any content from tools
+	card := client.NewCardBuilder()
+	// special handling for jiandan tool to avoid duplicate text since the main response may already contain post info, and the tool content is mainly for images
+	if !slices.ContainsFunc(contents, func(c tooling.Content) bool { return c.ToolName == "jiandan_top" }) {
+		card.AddMarkdown(response)
+	}
+	for _, content := range contents {
+		switch content.Type {
+		case tooling.ContentText:
+			card.AddMarkdown(content.Text)
+		case tooling.ContentImage:
+			if content.Image == "" {
+				continue
+			}
+			// Debug: log first 100 chars of image data to see if it's base64 or URL
+			preview := content.Image
+			if len(preview) > 100 {
+				preview = preview[:100]
+			}
+			logger.Debug("uploading tool image", slog.String("preview", preview), slog.Int("len", len(content.Image)))
+
+			imageKey, err := o.client.UploadImage(content.Image)
+			if err != nil {
+				logger.Warn("failed to upload tool image", slog.Any("error", err))
+				continue
+			}
+			if imageKey == "" {
+				continue
+			}
+			logger.Debug("uploaded tool image", slog.String("imageKey", imageKey))
+			card.AddImage(imageKey, content.AltText)
+		default:
+			logger.Warn("unimplemented content type", slog.Any("type", content.Type), slog.String("tool", content.ToolName))
+		}
+	}
+	logger.Debug("sending response card", slog.Any("card", card))
+	sender.SendRichCard(card)
 	return true
 }
 
-func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.ChatCompletionMessageParamUnion) (string, error) {
+func (o *OpenAIMiddleware) onTextMode(ctx context.Context, messages []openai.ChatCompletionMessageParamUnion) (string, []tooling.Content, error) {
 	logger.Info("Sending message to OpenAI", slog.Any("messages", messages))
 	params := openai.ChatCompletionNewParams{
 		Model:     openai.ChatModel(o.cfg.OpenAI.Deployment),
 		Messages:  messages,
 		MaxTokens: openai.Int(2048),
-		Tools: []openai.ChatCompletionToolParam{
-			{
-				Function: openai.FunctionDefinitionParam{
-					Name:        "get_weather",
-					Description: openai.String("Get weather at the given location"),
-					Parameters: openai.FunctionParameters{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"location": map[string]string{
-								"type": "string",
-							},
-						},
-						"required": []string{"location"},
-					},
-				},
-			},
-		},
+		Tools:     o.registry.Definitions(),
 	}
 
 	completion, err := o.openai.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	toolCalls := completion.Choices[0].Message.ToolCalls
 
 	// Return early if there are no tool calls
 	if len(toolCalls) == 0 {
-		return completion.Choices[0].Message.Content, nil
+		return completion.Choices[0].Message.Content, nil, nil
 	}
 
-	// If there is a was a function call, continue the conversation
+	// Collect contents from tool results
+	var allContents []tooling.Content
+
+	// If there were tool calls, execute them and continue the conversation
 	params.Messages = append(params.Messages, completion.Choices[0].Message.ToParam())
 	for _, toolCall := range toolCalls {
-		if toolCall.Function.Name == "get_weather" {
-			// Extract the location from the function call arguments
-			var args map[string]interface{}
-			err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
-			if err != nil {
-				return "", err
-			}
-			location := args["location"].(string)
-
-			// Simulate getting weather data
-			weatherData := o.getWeather(ctx, location)
-
-			params.Messages = append(params.Messages, openai.ToolMessage(weatherData, toolCall.ID))
+		result, err := o.registry.Execute(ctx, toolCall.Function.Name, toolCall.Function.Arguments)
+		if err != nil {
+			logger.Error("Tool execution failed", slog.String("tool", toolCall.Function.Name), slog.Any("error", err))
+			result = &tooling.ToolResult{Text: fmt.Sprintf("Tool error: %s", err.Error())}
 		}
+		params.Messages = append(params.Messages, openai.ToolMessage(result.Text, toolCall.ID))
+		allContents = append(allContents, result.Contents...)
 	}
 
 	completion, err = o.openai.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return completion.Choices[0].Message.Content, nil
-}
-
-func (o *OpenAIMiddleware) getWeather(ctx context.Context, location string) string {
-	logger.Info("Getting weather data", slog.String("location", location))
-	// Simulate getting weather data
-	weatherLives, err := o.weather.GetWeather(ctx, location)
-	if err != nil {
-		logger.Error("Failed to get weather data", slog.String("location", location), slog.Any("error", err))
-		return "Failed to get weather data"
-	}
-	if len(weatherLives) == 0 {
-		return fmt.Sprintf("No weather data found for %s", location)
-	}
-	return fmt.Sprintf("%s, 温度: %s, 风向: %s, 风力: %s, 空气湿度: %s",
-		weatherLives[0].Weather,
-		weatherLives[0].Temperature,
-		weatherLives[0].WindDirection,
-		weatherLives[0].WindPower,
-		weatherLives[0].Humidity)
+	return completion.Choices[0].Message.Content, allContents, nil
 }

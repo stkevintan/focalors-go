@@ -62,13 +62,12 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	}
 	logger.Debug("Sending message to yunzai", slog.Any("request", sent))
 	b.y.Send(sent)
-	return false
+	return true
 }
 
 func (b *bridgeMiddleware) logYunzaiMessage(msg *yunzai.Response) bool {
 	logger.Info("Received Yunzai message",
 		slog.String("BotId", msg.BotSelfId),
-		slog.String("MsgId", msg.MsgId),
 		slog.String("TargetId", msg.TargetId),
 	)
 	for _, content := range msg.Content {
@@ -92,6 +91,7 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 	queue := make([]yunzai.MessageContent, len(msg.Content))
 	copy(queue, msg.Content)
 	front := 0
+	card := client.NewCardBuilder()
 	for front < len(queue) {
 		content := queue[front]
 		front++
@@ -104,9 +104,7 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 			}
 			textContent = strings.Trim(textContent, " \n")
 			if textContent != "" {
-				if b.client != nil {
-					b.client.SendText(msg, textContent)
-				}
+				card.AddMarkdown(textContent)
 			}
 		case "image":
 			imageContent, ok := content.Data.(string)
@@ -114,8 +112,12 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 				logger.Error("Failed to convert content to string", slog.Any("content", content))
 				continue
 			}
-			if b.client != nil {
-				b.client.SendImage(msg, imageContent)
+			// b.SendImage(msg, imageContent)
+			if key, err := b.client.UploadImage(imageContent); err != nil {
+				logger.Error("Failed to upload image", slog.Any("error", err))
+				card.AddMarkdown("*上传图片失败*")
+			} else {
+				card.AddImage(key, "")
 			}
 		case "node":
 			nodeContent, ok := content.Data.([]any)
@@ -139,6 +141,9 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 		default:
 			logger.Warn("Unsupported message type", slog.Any("content", content))
 		}
+	}
+if len(card.Elements) > 0 {
+		b.client.SendRichCard(msg, card)
 	}
 	return false
 }
@@ -179,6 +184,6 @@ func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
 			b.avatarCache[key] = headUrl
 			b.redis.Set(key, headUrl, 0)
 		}
-		b.client.SendText(msg, "头像已更新")
+		b.SendText(msg, "头像已更新")
 	}
 }
