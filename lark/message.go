@@ -9,6 +9,12 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
+const (
+	// Chat type constants
+	chatTypeGroup = "group"
+	chatTypeP2P   = "p2p"
+)
+
 // LarkMessage implements client.GenericMessage
 type LarkMessage struct {
 	messageId         string
@@ -90,7 +96,7 @@ func (m *LarkMessage) GetUserId() string {
 }
 
 func (m *LarkMessage) GetGroupId() string {
-	if m.chatType == "group" {
+	if m.chatType == chatTypeGroup {
 		return m.chatId
 	}
 	return ""
@@ -101,7 +107,7 @@ func (m *LarkMessage) GetTarget() string {
 }
 
 func (m *LarkMessage) IsGroup() bool {
-	return m.chatType == "group"
+	return m.chatType == chatTypeGroup
 }
 
 func (m *LarkMessage) IsText() bool {
@@ -118,7 +124,7 @@ func (m *LarkMessage) GetReferMessage() (client.GenericMessage, bool) {
 
 func (m *LarkMessage) IsMentioned() bool {
 	// For private chats, always return true
-	if m.chatType != "group" {
+	if m.chatType != chatTypeGroup {
 		return true
 	}
 	

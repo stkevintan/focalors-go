@@ -30,6 +30,8 @@ const (
 	msgDedupeKeyPrefix = "lark:msg:dedup:"
 	// TTL for deduplication keys
 	msgDedupeTTL = 5 * time.Minute
+	// Lark API endpoint for getting bot info
+	botInfoAPIPath = "/open-apis/bot/v3/info"
 )
 
 type LarkClient struct {
@@ -72,7 +74,7 @@ func (l *LarkClient) fetchBotInfo(ctx context.Context) error {
 		} `json:"bot"`
 	}
 
-	resp, err := l.sdk.Get(ctx, "/open-apis/bot/v3/info", nil, larkcore.AccessTokenTypeTenant)
+	resp, err := l.sdk.Get(ctx, botInfoAPIPath, nil, larkcore.AccessTokenTypeTenant)
 	if err != nil {
 		return fmt.Errorf("failed to call bot info API: %w", err)
 	}
