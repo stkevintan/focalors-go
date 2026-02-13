@@ -24,7 +24,7 @@ ghcr.io/stkevintan/focalors-go:latest
 ```
 
 #### Docker Compose
-
+Please update `your-strong-password-here` to a strong password for redis access
 ```yaml
 services:
   focalors-go:
@@ -35,6 +35,7 @@ services:
       - ./config.toml:/root/config.toml:ro
     environment:
       - FOCALORS_APP_REDIS_ADDR=redis:6379
+      - FOCALORS_APP_REDIS_PASSWORD=your-strong-password-here
     depends_on:
       - redis
 
@@ -42,7 +43,7 @@ services:
     image: redis:7-alpine
     container_name: focalors-redis
     restart: unless-stopped
-    command: redis-server --requirepass changeme
+    command: redis-server --requirepass your-strong-password-here
     volumes:
       - redis-data:/data
 
@@ -64,6 +65,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=your-strong-password-here
       # 额外的插件地址,使用逗号(,)分隔
       - EXTRA_PLUGINS=https://gitee.com/bietiaop/ZZZ-Plugin.git
 
@@ -85,7 +87,7 @@ Create a `config.toml` alongside the compose file (see [Configuration](#configur
 docker compose up -d
 ```
 
-Optionally, you can update the yunzai config in the `./yunzai/config` directory.
+Optionally, you can modify the yunzai config in the `./yunzai/config` directory.
 
 ### Build from source
 
