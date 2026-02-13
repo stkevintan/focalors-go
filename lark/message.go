@@ -127,7 +127,7 @@ func (m *LarkMessage) IsMentioned() bool {
 	if m.chatType != chatTypeGroup {
 		return true
 	}
-	
+
 	// For group chats, check if bot is mentioned
 	for _, mentionedId := range m.mentionedUserIds {
 		if mentionedId == m.botId {

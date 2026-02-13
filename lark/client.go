@@ -98,14 +98,14 @@ func (l *LarkClient) fetchBotInfo(ctx context.Context) error {
 
 func (l *LarkClient) Start(ctx context.Context) error {
 	l.appCtx = ctx // store for use in async handlers
-	
+
 	// Fetch and cache bot's open_id at startup
 	if err := l.fetchBotInfo(ctx); err != nil {
 		logger.Error("failed to fetch bot info", slog.Any("error", err))
 		return fmt.Errorf("failed to fetch bot info: %w", err)
 	}
 	logger.Info("bot info fetched successfully", slog.String("bot_open_id", l.botId))
-	
+
 	eventHandler := dispatcher.NewEventDispatcher("", l.cfg.VerificationToken).
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 			// Process everything asynchronously to respond to Lark immediately.
