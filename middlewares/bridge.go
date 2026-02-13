@@ -3,7 +3,6 @@ package middlewares
 import (
 	"context"
 	"focalors-go/client"
-	"focalors-go/db"
 	"focalors-go/yunzai"
 	"log/slog"
 	"regexp"
@@ -12,8 +11,7 @@ import (
 
 type bridgeMiddleware struct {
 	*MiddlewareContext
-	y           *yunzai.YunzaiClient
-	avatarStore *db.AvatarStore
+	y *yunzai.YunzaiClient
 }
 
 func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
@@ -22,13 +20,26 @@ func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
 	return &bridgeMiddleware{
 		MiddlewareContext: base,
 		y:                 y,
-		avatarStore:       db.NewAvatarStore(base.redis),
 	}
 }
 
 func (b *bridgeMiddleware) Start() error {
 	go b.y.Start(b.ctx)
 	b.y.AddMessageHandler(b.onYunzaiMessage)
+	// initialize avatars
+	storedAvatars, err := b.avatarStore.List()
+	if err != nil {
+		logger.Warn("Failed to load avatars from store", slog.Any("error", err))
+		return nil
+	}
+	for key, image := range storedAvatars {
+		logger.Info("Loaded avatar from store", slog.String("userId", key), slog.Int("imageSize", len(image)))
+		b.y.RefreshAvatar(key, image)
+	}
+	b.avatarStore.Watch(func(userId string, content string) {
+		logger.Info("Avatar updated, refreshing in Yunzai", slog.String("userId", userId), slog.Int("contentSize", len(content)))
+		b.y.RefreshAvatar(userId, content)
+	})
 	return nil
 }
 
@@ -37,14 +48,15 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		return false
 	}
 
-	b.updateAvatarCache(msg)
-
 	userType := "direct"
 	if msg.IsGroup() {
 		userType = "group"
 	}
 
 	text := strings.TrimPrefix(msg.GetText(), "#!")
+	if strings.Contains(text, "排名") && !b.avatarStore.Has(msg.GetUserId()) {
+		b.SendText(msg, "你还没有上传头像，请私聊发送 #上传头像")
+	}
 
 	sent := yunzai.Request{
 		BotSelfId: "focalors",
@@ -59,7 +71,6 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 				Data: text,
 			},
 		},
-		Sender: b.createSender(msg),
 	}
 	logger.Debug("Sending message to yunzai", slog.Any("request", sent))
 	b.y.Send(sent)
@@ -149,26 +160,17 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 	return false
 }
 
-func (b *bridgeMiddleware) createSender(message client.GenericMessage) map[string]any {
-	if avatar, ok := b.avatarStore.Get(message.GetUserId()); ok {
-		return map[string]any{
-			"avatar": avatar,
-		}
-	}
-	return nil
-}
-
-func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
-	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
-	if msg.IsText() && triggers.MatchString(msg.GetText()) {
-		contacts, err := b.client.GetContactDetail(msg.GetUserId())
-		if err != nil {
-			logger.Error("Failed to get contact details", slog.Any("error", err))
-			return
-		}
-		for _, contact := range contacts {
-			b.avatarStore.Save(contact.Username(), contact.AvatarUrl())
-		}
-		b.SendText(msg, "头像已更新")
-	}
-}
+// func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
+// 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
+// 	if msg.IsText() && triggers.MatchString(msg.GetText()) {
+// 		contacts, err := b.client.GetContactDetail(msg.GetUserId())
+// 		if err != nil {
+// 			logger.Error("Failed to get contact details", slog.Any("error", err))
+// 			return
+// 		}
+// 		for _, contact := range contacts {
+// 			b.avatarStore.Save(contact.Username(), contact.AvatarUrl())
+// 		}
+// 		b.SendText(msg, "头像已更新")
+// 	}
+// }

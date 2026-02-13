@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"focalors-go/client"
-	"focalors-go/db"
 	"log/slog"
 	"time"
 )
@@ -16,13 +15,11 @@ const (
 
 type avatarMiddleware struct {
 	*MiddlewareContext
-	avatarStore *db.AvatarStore
 }
 
 func NewAvatarMiddleware(base *MiddlewareContext) Middleware {
 	return &avatarMiddleware{
 		MiddlewareContext: base,
-		avatarStore:       db.NewAvatarStore(base.redis),
 	}
 }
 

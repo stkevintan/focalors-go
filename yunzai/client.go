@@ -2,8 +2,10 @@ package yunzai
 
 import (
 	"context"
+	"fmt"
 	"focalors-go/client"
 	"focalors-go/config"
+	"strings"
 )
 
 type YunzaiClient struct {
@@ -35,4 +37,27 @@ func (y *YunzaiClient) Start(ctx context.Context) error {
 
 func (y *YunzaiClient) Send(message Request) error {
 	return y.ws.Send(message)
+}
+
+func (y *YunzaiClient) RefreshAvatar(userId string, avatarContent string) {
+	y.Send(Request{
+		BotSelfId: "focalors",
+		MsgId:     "meta_" + userId,
+		UserId:    userId,
+		GroupId:   "",
+		UserPM:    0,
+		UserType:  "direct",
+		Content:   []MessageContent{},
+		Sender: map[string]any{
+			"avatar": toDataURL(avatarContent),
+		},
+	})
+}
+
+// toDataURL wraps raw base64 content as a data URL if needed.
+func toDataURL(content string) string {
+	if strings.HasPrefix(content, "data:") || strings.HasPrefix(content, "http") {
+		return content
+	}
+	return fmt.Sprintf("data:image/png;base64,%s", content)
 }
