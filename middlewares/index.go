@@ -21,12 +21,13 @@ type Middleware interface {
 }
 
 type MiddlewareContext struct {
-	redis  *db.Redis
-	cron   *scheduler.CronTask
-	cfg    *config.Config
-	access *service.AccessService
-	ctx    context.Context
-	client client.GenericClient
+	redis       *db.Redis
+	cron        *scheduler.CronTask
+	cfg         *config.Config
+	access      *service.AccessService
+	ctx         context.Context
+	client      client.GenericClient
+	avatarStore *db.AvatarStore
 }
 
 func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg *config.Config, redis *db.Redis) *MiddlewareContext {
@@ -35,12 +36,13 @@ func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg 
 	// init
 	cron.Start()
 	return &MiddlewareContext{
-		redis:  redis,
-		cron:   cron,
-		cfg:    cfg,
-		access: access,
-		ctx:    ctx,
-		client: client,
+		redis:       redis,
+		cron:        cron,
+		cfg:         cfg,
+		access:      access,
+		ctx:         ctx,
+		client:      client,
+		avatarStore: db.NewAvatarStore(redis),
 	}
 }
 

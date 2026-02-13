@@ -4,25 +4,22 @@ import (
 	"context"
 	"fmt"
 	"focalors-go/client"
-	"focalors-go/db"
 	"log/slog"
 	"time"
 )
 
 const (
-	avatarSessionPrefix = "avatar:session:"
+	avatarSessionPrefix = "avatar:s:"
 	avatarSessionTTL    = 1 * time.Minute
 )
 
 type avatarMiddleware struct {
 	*MiddlewareContext
-	avatarStore *db.AvatarStore
 }
 
 func NewAvatarMiddleware(base *MiddlewareContext) Middleware {
 	return &avatarMiddleware{
 		MiddlewareContext: base,
-		avatarStore:       db.NewAvatarStore(base.redis),
 	}
 }
 
