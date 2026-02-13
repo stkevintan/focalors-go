@@ -25,6 +25,11 @@ func (y *YunzaiClient) AddMessageHandler(handler func(ctx context.Context, msg *
 	y.handlers = append(y.handlers, handler)
 }
 
+// OnConnect registers a callback that fires after each successful WebSocket connection (including reconnects).
+func (y *YunzaiClient) OnConnect(fn func()) {
+	y.ws.OnConnect(fn)
+}
+
 func (y *YunzaiClient) Start(ctx context.Context) error {
 	return y.ws.Run(ctx, func(msg *Response) {
 		for _, handler := range y.handlers {

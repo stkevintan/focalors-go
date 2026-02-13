@@ -23,19 +23,22 @@ func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
 	}
 }
 
-func (b *bridgeMiddleware) Start() error {
-	go b.y.Start(b.ctx)
-	b.y.AddMessageHandler(b.onYunzaiMessage)
-	// initialize avatars
+func (b *bridgeMiddleware) syncAvatars() {
 	storedAvatars, err := b.avatarStore.List()
 	if err != nil {
 		logger.Warn("Failed to load avatars from store", slog.Any("error", err))
-		return nil
+		return
 	}
 	for key, image := range storedAvatars {
 		logger.Info("Loaded avatar from store", slog.String("userId", key), slog.Int("imageSize", len(image)))
 		b.y.RefreshAvatar(key, image)
 	}
+}
+
+func (b *bridgeMiddleware) Start() error {
+	b.y.AddMessageHandler(b.onYunzaiMessage)
+	b.y.OnConnect(b.syncAvatars)
+	go b.y.Start(b.ctx)
 	b.avatarStore.Watch(func(userId string, content string) {
 		logger.Info("Avatar updated, refreshing in Yunzai", slog.String("userId", userId), slog.Int("contentSize", len(content)))
 		b.y.RefreshAvatar(userId, content)
