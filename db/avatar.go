@@ -23,9 +23,10 @@ type AvatarCallback func(userId string, base64Content string)
 
 // AvatarStore manages user avatar storage in Redis with an in-memory cache.
 type AvatarStore struct {
-	redis    *Redis
-	cache    sync.Map
-	watchers []AvatarCallback
+	redis     *Redis
+	cache     sync.Map
+	watcherMu sync.RWMutex
+	watchers  []AvatarCallback
 }
 
 func NewAvatarStore(redis *Redis) *AvatarStore {
@@ -48,7 +49,14 @@ func (s *AvatarStore) Save(userId string, base64Content string) error {
 		return err
 	}
 	s.cache.Store(key, resized)
-	for _, cb := range s.watchers {
+	
+	// Copy watchers slice to avoid holding the lock while callbacks are executed
+	s.watcherMu.RLock()
+	watchersCopy := make([]AvatarCallback, len(s.watchers))
+	copy(watchersCopy, s.watchers)
+	s.watcherMu.RUnlock()
+	
+	for _, cb := range watchersCopy {
 		go cb(userId, resized)
 	}
 	return nil
@@ -80,6 +88,8 @@ func resizeAvatar(base64Content string) (string, error) {
 
 // Watch registers a callback that is called whenever an avatar is saved successfully.
 func (s *AvatarStore) Watch(cb AvatarCallback) {
+	s.watcherMu.Lock()
+	defer s.watcherMu.Unlock()
 	s.watchers = append(s.watchers, cb)
 }
 
