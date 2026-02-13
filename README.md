@@ -33,6 +33,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./config.toml:/root/config.toml:ro
+    environment:
+      - FOCALORS_APP_REDIS_ADDR=redis:6379
     depends_on:
       - redis
 
@@ -49,17 +51,20 @@ services:
     image: ghcr.io/stkevintan/yunzai-docker:main
     restart: unless-stopped
     volumes:
-      - ./docker/config/:/app/Miao-Yunzai/config/config/ # Bot基础配置文件
-      - ./docker/logs:/app/Miao-Yunzai/logs # 日志文件
-      - ./docker/data:/app/Miao-Yunzai/data # 数据文件
+      - ./yunzai/config/:/app/Miao-Yunzai/config/config/ # Bot基础配置文件
+      - ./yunzai/logs:/app/Miao-Yunzai/logs # 日志文件
+      - ./yunzai/data:/app/Miao-Yunzai/data # 数据文件
       #plugin 目录,不能挂载整个目录
-      - ./docker/plugins/genshin:/app/Miao-Yunzai/plugins/genshin
-      - ./docker/plugins/miao-plugin:/app/Miao-Yunzai/plugins/miao-plugin
-      - ./docker/plugins/xiaoyao-cvs-plugin:/app/Miao-Yunzai/plugins/xiaoyao-cvs-plugin
-      - ./docker/plugins/ZZZ-Plugin:/app/Miao-Yunzai/plugins/ZZZ-Plugin
+      - ./yunzai/plugins/genshin:/app/Miao-Yunzai/plugins/genshin
+      - ./yunzai/plugins/miao-plugin:/app/Miao-Yunzai/plugins/miao-plugin
+      - ./yunzai/plugins/xiaoyao-cvs-plugin:/app/Miao-Yunzai/plugins/xiaoyao-cvs-plugin
+      - ./yunzai/plugins/ZZZ-Plugin:/app/Miao-Yunzai/plugins/ZZZ-Plugin
     ports:
       - 2536:2536
-    env_file: .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
     healthcheck:
       test: curl --fail http://localhost:2536 || exit 1
       start_period: 20s
@@ -77,6 +82,8 @@ Create a `config.toml` alongside the compose file (see [Configuration](#configur
 ```bash
 docker compose up -d
 ```
+
+Optionally, you can update the yunzai config in the `./yunzai/config` directory.
 
 ### Build from source
 

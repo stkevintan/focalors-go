@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -86,6 +87,13 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Set default configuration values
 	setDefaults(v)
+
+	// Enable environment variable override
+	// Environment variables use the prefix FOCALORS_ and replace dots/nested keys with underscores.
+	// e.g. app.redis.addr -> FOCALORS_APP_REDIS_ADDR
+	v.SetEnvPrefix("FOCALORS")
+	v.AutomaticEnv()
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Set configuration file settings
 	v.SetConfigType("toml")
