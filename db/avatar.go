@@ -16,7 +16,7 @@ import (
 )
 
 const avatarKeyPrefix = "avatar:"
-const avatarSize = 64
+const avatarSize = 128
 
 // AvatarCallback is invoked when an avatar is saved successfully.
 type AvatarCallback func(userId string, base64Content string)
