@@ -49,7 +49,6 @@ func (s *AvatarStore) Save(userId string, base64Content string) error {
 		return err
 	}
 	s.cache.Store(key, resized)
-	
 	// Copy watchers slice to avoid holding the lock while callbacks are executed
 	s.watcherMu.RLock()
 	watchersCopy := make([]AvatarCallback, len(s.watchers))
