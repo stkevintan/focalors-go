@@ -9,17 +9,27 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
+const (
+	// Chat type constants
+	chatTypeGroup = "group"
+	chatTypeP2P   = "p2p"
+)
+
+// botOpenId stores the bot's open_id, set at startup
+var botOpenId string
+
 // LarkMessage implements client.GenericMessage
 type LarkMessage struct {
-	messageId   string
-	msgType     string
-	chatId      string
-	chatType    string // p2p or group
-	content     string // raw JSON content
-	text        string // parsed text content
-	senderId    string // open_id of the sender
-	senderType  string
-	mentionText string // text with mentions resolved
+	messageId        string
+	msgType          string
+	chatId           string
+	chatType         string // p2p or group
+	content          string // raw JSON content
+	text             string // parsed text content
+	senderId         string // open_id of the sender
+	senderType       string
+	mentionText      string   // text with mentions resolved
+	mentionedUserIds []string // list of mentioned user open_ids
 }
 
 var _ client.GenericMessage = (*LarkMessage)(nil)
@@ -44,6 +54,16 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 			lm.senderId = derefStr(sender.SenderId.OpenId)
 		}
 		lm.senderType = derefStr(sender.SenderType)
+	}
+
+	// Extract mentioned user IDs from Mentions array
+	if msg.Mentions != nil {
+		lm.mentionedUserIds = make([]string, 0, len(msg.Mentions))
+		for _, mention := range msg.Mentions {
+			if mention.Id != nil && mention.Id.OpenId != nil {
+				lm.mentionedUserIds = append(lm.mentionedUserIds, *mention.Id.OpenId)
+			}
+		}
 	}
 
 	// Parse text from content JSON for text messages
@@ -77,7 +97,7 @@ func (m *LarkMessage) GetUserId() string {
 }
 
 func (m *LarkMessage) GetGroupId() string {
-	if m.chatType == "group" {
+	if m.chatType == chatTypeGroup {
 		return m.chatId
 	}
 	return ""
@@ -88,7 +108,7 @@ func (m *LarkMessage) GetTarget() string {
 }
 
 func (m *LarkMessage) IsGroup() bool {
-	return m.chatType == "group"
+	return m.chatType == chatTypeGroup
 }
 
 func (m *LarkMessage) IsText() bool {
@@ -104,7 +124,18 @@ func (m *LarkMessage) GetReferMessage() (client.GenericMessage, bool) {
 }
 
 func (m *LarkMessage) IsMentioned() bool {
-	return true
+	// For private chats, always return true
+	if m.chatType != chatTypeGroup {
+		return true
+	}
+
+	// For group chats, check if bot is mentioned
+	for _, mentionedId := range m.mentionedUserIds {
+		if mentionedId == botOpenId {
+			return true
+		}
+	}
+	return false
 }
 
 func derefStr(s *string) string {
