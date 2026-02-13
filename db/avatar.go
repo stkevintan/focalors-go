@@ -17,6 +17,7 @@ import (
 
 const avatarKeyPrefix = "avatar:"
 const avatarSize = 128
+const avatarScanBatchSize = 50
 
 // AvatarCallback is invoked when an avatar is saved successfully.
 type AvatarCallback func(userId string, base64Content string)
@@ -118,7 +119,7 @@ func (s *AvatarStore) List() (map[string]string, error) {
 	result := make(map[string]string)
 	var cursor uint64
 	for {
-		keys, nextCursor, err := s.redis.Scan(cursor, avatarKeyPrefix+"*", 50)
+		keys, nextCursor, err := s.redis.Scan(cursor, avatarKeyPrefix+"*", avatarScanBatchSize)
 		if err != nil {
 			return nil, err
 		}
