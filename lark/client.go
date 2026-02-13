@@ -38,7 +38,6 @@ type LarkClient struct {
 	sdk      *larkSDK.Client
 	cfg      *config.LarkConfig
 	handlers []func(ctx context.Context, msg client.GenericMessage) bool
-	botId    string // open_id of the bot
 	redis    *db.Redis
 	appCtx   context.Context // application context for graceful shutdown
 }
@@ -92,7 +91,6 @@ func (l *LarkClient) fetchBotInfo(ctx context.Context) error {
 		return fmt.Errorf("bot open_id is empty in response")
 	}
 
-	l.botId = botInfo.Bot.OpenId
 	botOpenId = botInfo.Bot.OpenId
 	return nil
 }
@@ -105,7 +103,7 @@ func (l *LarkClient) Start(ctx context.Context) error {
 		logger.Error("failed to fetch bot info", slog.Any("error", err))
 		return fmt.Errorf("failed to fetch bot info: %w", err)
 	}
-	logger.Info("bot info fetched successfully", slog.String("bot_open_id", l.botId))
+	logger.Info("bot info fetched successfully", slog.String("bot_open_id", botOpenId))
 
 	eventHandler := dispatcher.NewEventDispatcher("", l.cfg.VerificationToken).
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
@@ -417,8 +415,8 @@ func (c *LarkContact) AvatarUrl() string { return c.avatarUrl }
 
 func (l *LarkClient) GetSelfUserId() string {
 	// Return the cached bot open_id if available, otherwise fall back to AppID
-	if l.botId != "" {
-		return l.botId
+	if botOpenId != "" {
+		return botOpenId
 	}
 	return l.cfg.AppID
 }
