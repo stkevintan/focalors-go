@@ -59,8 +59,51 @@ func NewLarkClient(cfg *config.Config, redis *db.Redis) (*LarkClient, error) {
 	}, nil
 }
 
+// fetchBotInfo retrieves and caches the bot's open_id from Lark API
+func (l *LarkClient) fetchBotInfo(ctx context.Context) error {
+	type BotInfoResp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Bot  struct {
+			ActivateStatus int    `json:"activate_status"`
+			AppName        string `json:"app_name"`
+			AvatarUrl      string `json:"avatar_url"`
+			OpenId         string `json:"open_id"`
+		} `json:"bot"`
+	}
+
+	resp, err := l.sdk.Get(ctx, "/open-apis/bot/v3/info", nil, larkcore.AccessTokenTypeTenant)
+	if err != nil {
+		return fmt.Errorf("failed to call bot info API: %w", err)
+	}
+
+	var botInfo BotInfoResp
+	if err := json.Unmarshal(resp.RawBody, &botInfo); err != nil {
+		return fmt.Errorf("failed to parse bot info response: %w", err)
+	}
+
+	if botInfo.Code != 0 {
+		return fmt.Errorf("bot info API returned error: code=%d, msg=%s", botInfo.Code, botInfo.Msg)
+	}
+
+	if botInfo.Bot.OpenId == "" {
+		return fmt.Errorf("bot open_id is empty in response")
+	}
+
+	l.botId = botInfo.Bot.OpenId
+	return nil
+}
+
 func (l *LarkClient) Start(ctx context.Context) error {
 	l.appCtx = ctx // store for use in async handlers
+	
+	// Fetch and cache bot's open_id at startup
+	if err := l.fetchBotInfo(ctx); err != nil {
+		logger.Error("failed to fetch bot info", slog.Any("error", err))
+		return fmt.Errorf("failed to fetch bot info: %w", err)
+	}
+	logger.Info("bot info fetched successfully", slog.String("bot_open_id", l.botId))
+	
 	eventHandler := dispatcher.NewEventDispatcher("", l.cfg.VerificationToken).
 		OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 			// Process everything asynchronously to respond to Lark immediately.
@@ -370,6 +413,10 @@ func (c *LarkContact) Nickname() string  { return c.name }
 func (c *LarkContact) AvatarUrl() string { return c.avatarUrl }
 
 func (l *LarkClient) GetSelfUserId() string {
+	// Return the cached bot open_id if available, otherwise fall back to AppID
+	if l.botId != "" {
+		return l.botId
+	}
 	return l.cfg.AppID
 }
 

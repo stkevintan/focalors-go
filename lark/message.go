@@ -11,15 +11,17 @@ import (
 
 // LarkMessage implements client.GenericMessage
 type LarkMessage struct {
-	messageId   string
-	msgType     string
-	chatId      string
-	chatType    string // p2p or group
-	content     string // raw JSON content
-	text        string // parsed text content
-	senderId    string // open_id of the sender
-	senderType  string
-	mentionText string // text with mentions resolved
+	messageId         string
+	msgType           string
+	chatId            string
+	chatType          string // p2p or group
+	content           string // raw JSON content
+	text              string // parsed text content
+	senderId          string // open_id of the sender
+	senderType        string
+	mentionText       string   // text with mentions resolved
+	mentionedUserIds  []string // list of mentioned user open_ids
+	botId             string   // open_id of the bot for mention detection
 }
 
 var _ client.GenericMessage = (*LarkMessage)(nil)
@@ -37,6 +39,7 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 		chatId:    derefStr(msg.ChatId),
 		chatType:  derefStr(msg.ChatType),
 		content:   derefStr(msg.Content),
+		botId:     l.botId, // Store bot ID for mention detection
 	}
 
 	if sender != nil {
@@ -44,6 +47,16 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 			lm.senderId = derefStr(sender.SenderId.OpenId)
 		}
 		lm.senderType = derefStr(sender.SenderType)
+	}
+
+	// Extract mentioned user IDs from Mentions array
+	if msg.Mentions != nil {
+		lm.mentionedUserIds = make([]string, 0, len(msg.Mentions))
+		for _, mention := range msg.Mentions {
+			if mention.Id != nil && mention.Id.OpenId != nil {
+				lm.mentionedUserIds = append(lm.mentionedUserIds, *mention.Id.OpenId)
+			}
+		}
 	}
 
 	// Parse text from content JSON for text messages
@@ -104,7 +117,18 @@ func (m *LarkMessage) GetReferMessage() (client.GenericMessage, bool) {
 }
 
 func (m *LarkMessage) IsMentioned() bool {
-	return true
+	// For private chats, always return true
+	if m.chatType != "group" {
+		return true
+	}
+	
+	// For group chats, check if bot is mentioned
+	for _, mentionedId := range m.mentionedUserIds {
+		if mentionedId == m.botId {
+			return true
+		}
+	}
+	return false
 }
 
 func derefStr(s *string) string {
