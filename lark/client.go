@@ -93,6 +93,7 @@ func (l *LarkClient) fetchBotInfo(ctx context.Context) error {
 	}
 
 	l.botId = botInfo.Bot.OpenId
+	botOpenId = botInfo.Bot.OpenId
 	return nil
 }
 

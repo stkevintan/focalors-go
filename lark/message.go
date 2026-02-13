@@ -15,19 +15,21 @@ const (
 	chatTypeP2P   = "p2p"
 )
 
+// botOpenId stores the bot's open_id, set at startup
+var botOpenId string
+
 // LarkMessage implements client.GenericMessage
 type LarkMessage struct {
-	messageId         string
-	msgType           string
-	chatId            string
-	chatType          string // p2p or group
-	content           string // raw JSON content
-	text              string // parsed text content
-	senderId          string // open_id of the sender
-	senderType        string
-	mentionText       string   // text with mentions resolved
-	mentionedUserIds  []string // list of mentioned user open_ids
-	botId             string   // open_id of the bot for mention detection
+	messageId        string
+	msgType          string
+	chatId           string
+	chatType         string // p2p or group
+	content          string // raw JSON content
+	text             string // parsed text content
+	senderId         string // open_id of the sender
+	senderType       string
+	mentionText      string   // text with mentions resolved
+	mentionedUserIds []string // list of mentioned user open_ids
 }
 
 var _ client.GenericMessage = (*LarkMessage)(nil)
@@ -45,7 +47,6 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 		chatId:    derefStr(msg.ChatId),
 		chatType:  derefStr(msg.ChatType),
 		content:   derefStr(msg.Content),
-		botId:     l.botId, // Store bot ID for mention detection
 	}
 
 	if sender != nil {
@@ -130,7 +131,7 @@ func (m *LarkMessage) IsMentioned() bool {
 
 	// For group chats, check if bot is mentioned
 	for _, mentionedId := range m.mentionedUserIds {
-		if mentionedId == m.botId {
+		if mentionedId == botOpenId {
 			return true
 		}
 	}
