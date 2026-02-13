@@ -64,6 +64,8 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # 额外的插件地址,使用逗号(,)分隔
+      - EXTRA_PLUGINS=https://gitee.com/bietiaop/ZZZ-Plugin.git
 
     healthcheck:
       test: curl --fail http://localhost:2536 || exit 1
