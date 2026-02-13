@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	avatarSessionPrefix = "avatar:session:"
+	avatarSessionPrefix = "avatar:s:"
 	avatarSessionTTL    = 1 * time.Minute
 )
 

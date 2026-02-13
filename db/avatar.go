@@ -15,7 +15,7 @@ import (
 	"golang.org/x/image/draw"
 )
 
-const avatarKeyPrefix = "avatar:"
+const avatarKeyPrefix = "avatar:u:"
 const avatarSize = 128
 
 // AvatarCallback is invoked when an avatar is saved successfully.
