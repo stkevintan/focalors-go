@@ -80,6 +80,18 @@ func (r *Redis) Exists(key string) (int64, error) {
 	return cmd.Result()
 }
 
+func (r *Redis) Scan(cursor uint64, match string, count int64) ([]string, uint64, error) {
+	cmd := r.RedisClient.Scan(r.RedisCtx, cursor, match, count)
+	if err := cmd.Err(); err != nil {
+		return nil, 0, err
+	}
+	keys, nextCursor, err := cmd.Result()
+	if err != nil {
+		return nil, 0, err
+	}
+	return keys, nextCursor, nil
+}
+
 func (r *Redis) Close() error {
 	return r.RedisClient.Close()
 }

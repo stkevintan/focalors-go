@@ -115,18 +115,25 @@ func (s *AvatarStore) Has(userId string) bool {
 
 // List returns all saved avatars as a map of userId to base64 content.
 func (s *AvatarStore) List() (map[string]string, error) {
-	keys, err := s.redis.Keys(avatarKeyPrefix + "*")
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]string, len(keys))
-	for _, key := range keys {
-		userId := strings.TrimPrefix(key, avatarKeyPrefix)
-		val, err := s.redis.Get(key)
-		if err != nil || val == "" {
-			continue
+	result := make(map[string]string)
+	var cursor uint64
+	for {
+		keys, nextCursor, err := s.redis.Scan(cursor, avatarKeyPrefix+"*", 50)
+		if err != nil {
+			return nil, err
 		}
-		result[userId] = val
+		for _, key := range keys {
+			userId := strings.TrimPrefix(key, avatarKeyPrefix)
+			val, err := s.redis.Get(key)
+			if err != nil || val == "" {
+				continue
+			}
+			result[userId] = val
+		}
+		if nextCursor == 0 {
+			break
+		}
+		cursor = nextCursor
 	}
 	return result, nil
 }
