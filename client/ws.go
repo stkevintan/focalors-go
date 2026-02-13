@@ -21,6 +21,7 @@ type WebSocketClient[Message any] struct {
 	Url           string
 	messageBuffer chan Message
 	wg            sync.WaitGroup
+	onConnect     func()
 }
 
 // New creates a new WebSocket client
@@ -29,6 +30,11 @@ func NewClient[Message any](url string) *WebSocketClient[Message] {
 		Url:           url,
 		messageBuffer: make(chan Message, 5), // Reduced from 20 to 5
 	}
+}
+
+// OnConnect registers a callback that fires after each successful connection (including reconnects).
+func (c *WebSocketClient[Message]) OnConnect(fn func()) {
+	c.onConnect = fn
 }
 
 // Connect connects to the websocket server
@@ -42,6 +48,9 @@ func (c *WebSocketClient[Message]) Connect() error {
 
 	c.Conn = conn
 	wsLogger.Info("[WebSocket] Successfully connected.", slog.String("url", c.Url))
+	if c.onConnect != nil {
+		go c.onConnect()
+	}
 	return nil
 }
 
