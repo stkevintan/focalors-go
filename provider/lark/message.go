@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
@@ -34,6 +35,9 @@ type LarkMessage struct {
 	mentionText      string   // text with mentions resolved
 	mentionedUserIds []string // list of mentioned user open_ids
 	mentionedUsers   []contract.UserInfo
+	replyToMessageId string // stored for lazy resolution
+	client           *LarkClient
+	referOnce        sync.Once
 	referMessage     contract.GenericMessage
 }
 
@@ -86,15 +90,8 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 	} else if msg.RootId != nil && *msg.RootId != "" {
 		replyToMessageId = *msg.RootId
 	}
-
-	if replyToMessageId != "" {
-		referMessage, err := l.getMessageByID(replyToMessageId)
-		if err != nil {
-			logger.Warn("failed to fetch referred message", slog.String("message_id", replyToMessageId), slog.Any("error", err))
-		} else {
-			lm.referMessage = referMessage
-		}
-	}
+	lm.replyToMessageId = replyToMessageId
+	lm.client = l
 
 	lm.text = l.extractText(lm.msgType, lm.content)
 
@@ -141,6 +138,17 @@ func (m *LarkMessage) IsImage() bool {
 }
 
 func (m *LarkMessage) GetReferMessage() (contract.GenericMessage, bool) {
+	if m.replyToMessageId == "" {
+		return nil, false
+	}
+	m.referOnce.Do(func() {
+		referMsg, err := m.client.getMessageByID(m.replyToMessageId)
+		if err != nil {
+			logger.Warn("failed to fetch referred message", slog.String("message_id", m.replyToMessageId), slog.Any("error", err))
+			return
+		}
+		m.referMessage = referMsg
+	})
 	if m.referMessage == nil {
 		return nil, false
 	}
@@ -218,21 +226,15 @@ func (l *LarkClient) getMessageByID(messageId string) (*LarkMessage, error) {
 		}
 	}
 
-	// Resolve parent message to enable reply chain walking
+	// Store parent ID for lazy resolution
 	var parentId string
 	if item.ParentId != nil && *item.ParentId != "" {
 		parentId = *item.ParentId
 	} else if item.RootId != nil && *item.RootId != "" {
 		parentId = *item.RootId
 	}
-	if parentId != "" {
-		referMsg, err := l.getMessageByID(parentId)
-		if err != nil {
-			logger.Warn("failed to fetch parent message in chain", slog.String("message_id", parentId), slog.Any("error", err))
-		} else if referMsg != nil {
-			lm.referMessage = referMsg
-		}
-	}
+	lm.replyToMessageId = parentId
+	lm.client = l
 
 	lm.text = l.extractText(lm.msgType, lm.content)
 
