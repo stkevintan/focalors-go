@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"focalors-go/db"
 	"focalors-go/scheduler"
 	"focalors-go/service"
@@ -45,8 +45,8 @@ func (j *jiadanMiddleware) Start() error {
 	return nil
 }
 
-func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
-	if fs := client.ToFlagSet(msg, "煎蛋"); fs != nil {
+func (j *jiadanMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
+	if fs := contract.ToFlagSet(msg, "煎蛋"); fs != nil {
 		var top int
 		var cron string
 		fs.StringVar(&cron, "c", "", "自动同步频率, cron表达式 | default (*/30 8-23 * * *) | off")
@@ -129,7 +129,7 @@ func (j *jiadanMiddleware) SyncJob() func(ctx map[string]string) error {
 		j.sendLock.Lock()
 		defer j.sendLock.Unlock()
 		card := j.buildJiadanCard(base64Images)
-		if _, err := j.client.SendRichCard(client.NewTarget(target), card); err != nil {
+		if _, err := j.client.SendRichCard(contract.NewTarget(target), card); err != nil {
 			logger.Error("Failed to send jiadan card", slog.Any("error", err))
 		}
 		return nil
@@ -137,12 +137,12 @@ func (j *jiadanMiddleware) SyncJob() func(ctx map[string]string) error {
 }
 
 // buildJiadanCard creates a card with all jiadan images uploaded
-func (j *jiadanMiddleware) buildJiadanCard(posts []service.JiadanResult) *client.CardBuilder {
+func (j *jiadanMiddleware) buildJiadanCard(posts []service.JiadanResult) *contract.CardBuilder {
 	totalImages := 0
 	for _, p := range posts {
 		totalImages += len(p.Images)
 	}
-	card := client.NewCardBuilder().AddMarkdown(fmt.Sprintf("**煎蛋无聊图** (%d张)", totalImages))
+	card := contract.NewCardBuilder().AddMarkdown(fmt.Sprintf("**煎蛋无聊图** (%d张)", totalImages))
 	for _, post := range posts {
 		card.AddMarkdown(fmt.Sprintf("%s (%s) 👍%s 👎%s",
 			post.CommentAuthor, post.CommentDate, post.VotePositive, post.VoteNegative))

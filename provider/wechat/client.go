@@ -3,8 +3,9 @@ package wechat
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
 	cfg "focalors-go/config"
+	"focalors-go/contract"
+	"focalors-go/protocol"
 	"focalors-go/slogger"
 	"log/slog"
 	"time"
@@ -15,7 +16,7 @@ import (
 var logger = slogger.New("wechat")
 
 type WechatClient struct {
-	ws         *client.WebSocketClient[WechatSyncMessage]
+	ws         *protocol.WebSocketClient[WechatSyncMessage]
 	cfg        *cfg.WechatConfig
 	httpClient *R.Client
 	handlers   []WechatMessageHandler
@@ -52,7 +53,7 @@ func NewWechat(cfg *cfg.Config) (*WechatClient, error) {
 	w := &WechatClient{
 		cfg:        &cfg.Wechat,
 		httpClient: httpClient,
-		// ws:         client.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
+		// ws:         protocol.NewClient[WechatSyncMessage](ctx, cfg.Wechat.SubURL),
 	}
 	return w, nil
 }
@@ -109,7 +110,7 @@ func (w *WechatClient) login(ctx context.Context) error {
 	}
 }
 
-type WechatMessageHandler = func(ctx context.Context, msg client.GenericMessage) bool
+type WechatMessageHandler = func(ctx context.Context, msg contract.GenericMessage) bool
 
 func (w *WechatClient) AddMessageHandler(handler WechatMessageHandler) {
 	w.handlers = append(w.handlers, handler)
@@ -134,7 +135,7 @@ func (w *WechatClient) Start(ctx context.Context) error {
 		w.SetWebhook()
 		return w.StartWebhookServer()
 	case cfg.PushTypeWebSocket:
-		w.ws = client.NewClient[WechatSyncMessage](fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
+		w.ws = protocol.NewClient[WechatSyncMessage](fmt.Sprintf("%s?key=%s", w.cfg.SubURL, w.cfg.Token))
 		return w.ws.Run(ctx, func(msg *WechatSyncMessage) {
 			message := msg.Parse()
 			for _, handler := range w.handlers {

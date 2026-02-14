@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"focalors-go/service"
 )
 
@@ -17,12 +17,12 @@ func NewAccessMiddleware(base *MiddlewareContext) Middleware {
 	}
 }
 
-func (a *AccessMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (a *AccessMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	if !a.access.IsAdmin(msg.GetUserId()) {
 		return false
 	}
 
-	if fs := client.ToFlagSet(msg, "access"); fs != nil {
+	if fs := contract.ToFlagSet(msg, "access"); fs != nil {
 		var kind string
 		var target string
 		fs.StringVar(&kind, "p", "", "权限类型")
@@ -51,7 +51,7 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 		}
 		nickname := target
 		// if !strings.HasPrefix(target, "wxid_") && !strings.HasSuffix(target, "@chatroom") {
-		// 	a.client.SendText(msg, fmt.Sprintf("未知目标用户: %s", target))
+		// 	a.contract.SendText(msg, fmt.Sprintf("未知目标用户: %s", target))
 		// 	return true
 		// }
 

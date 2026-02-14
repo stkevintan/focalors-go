@@ -3,20 +3,20 @@ package yunzai
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/protocol"
 	"strings"
 )
 
 type YunzaiClient struct {
-	ws       *client.WebSocketClient[Response]
+	ws       *protocol.WebSocketClient[Response]
 	cfg      *config.Config
 	handlers []func(ctx context.Context, msg *Response) bool
 }
 
 func NewYunzai(cfg *config.Config) *YunzaiClient {
 	return &YunzaiClient{
-		ws:  client.NewClient[Response](cfg.Yunzai.Server),
+		ws:  protocol.NewClient[Response](cfg.Yunzai.Server),
 		cfg: cfg,
 	}
 }

@@ -1,4 +1,4 @@
-package client
+package protocol
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var wsLogger = slogger.New("client.websocket")
+var wsLogger = slogger.New("protocol.websocket")
 
 // A websocket client
 type WebSocketClient[Message any] struct {

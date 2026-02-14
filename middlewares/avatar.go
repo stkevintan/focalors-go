@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"log/slog"
 	"time"
 )
@@ -23,7 +23,7 @@ func NewAvatarMiddleware(base *MiddlewareContext) Middleware {
 	}
 }
 
-func (a *avatarMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (a *avatarMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	// Check if user has an active avatar upload session (highest priority to capture images)
 	if a.handleAvatarUpload(msg) {
 		return true
@@ -37,7 +37,7 @@ func (a *avatarMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	return false
 }
 
-func (a *avatarMiddleware) handleAvatarCommand(msg client.GenericMessage) bool {
+func (a *avatarMiddleware) handleAvatarCommand(msg contract.GenericMessage) bool {
 	// Only allow in private chat
 	if msg.IsGroup() {
 		a.SendText(msg, "请在私聊中使用 #上传头像 功能")
@@ -75,7 +75,7 @@ func (a *avatarMiddleware) handleAvatarCommand(msg client.GenericMessage) bool {
 	return true
 }
 
-func (a *avatarMiddleware) handleAvatarUpload(msg client.GenericMessage) bool {
+func (a *avatarMiddleware) handleAvatarUpload(msg contract.GenericMessage) bool {
 	// Only handle private image messages
 	if msg.IsGroup() || !msg.IsImage() {
 		return false

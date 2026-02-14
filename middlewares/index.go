@@ -3,8 +3,8 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/contract"
 	"focalors-go/db"
 	"focalors-go/scheduler"
 	"focalors-go/service"
@@ -15,7 +15,7 @@ import (
 var logger = slogger.New("middlewares")
 
 type Middleware interface {
-	OnMessage(ctx context.Context, msg client.GenericMessage) bool
+	OnMessage(ctx context.Context, msg contract.GenericMessage) bool
 	Start() error
 	Stop() error
 }
@@ -26,11 +26,11 @@ type MiddlewareContext struct {
 	cfg         *config.Config
 	access      *service.AccessService
 	ctx         context.Context
-	client      client.GenericClient
+	client      contract.GenericClient
 	avatarStore *db.AvatarStore
 }
 
-func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg *config.Config, redis *db.Redis) *MiddlewareContext {
+func NewMiddlewareContext(ctx context.Context, client contract.GenericClient, cfg *config.Config, redis *db.Redis) *MiddlewareContext {
 	cron := scheduler.NewCronTask(redis)
 	access := service.NewAccessService(redis, cfg.App.Admin)
 	// init
@@ -49,14 +49,14 @@ func NewMiddlewareContext(ctx context.Context, client client.GenericClient, cfg 
 // PendingSender automatically updates/recalls the pending message before sending a new message.
 // Uses card messages for in-place updates on supported platforms.
 type PendingSender struct {
-	client       client.GenericClient
-	target       client.SendTarget
+	client       contract.GenericClient
+	target       contract.SendTarget
 	pendingMsgId string
 	replyToMsgId string // optional: message ID to reply to
 }
 
 // NewPendingSender creates a PendingSender that will recall pendingMsgId before sending
-func NewPendingSender(c client.GenericClient, target client.SendTarget, pendingMsgId string) *PendingSender {
+func NewPendingSender(c contract.GenericClient, target contract.SendTarget, pendingMsgId string) *PendingSender {
 	return &PendingSender{
 		client:       c,
 		target:       target,
@@ -65,7 +65,7 @@ func NewPendingSender(c client.GenericClient, target client.SendTarget, pendingM
 }
 
 // NewReplySender creates a PendingSender that replies to a specific message
-func NewReplySender(c client.GenericClient, target client.SendTarget, pendingMsgId, replyToMsgId string) *PendingSender {
+func NewReplySender(c contract.GenericClient, target contract.SendTarget, pendingMsgId, replyToMsgId string) *PendingSender {
 	return &PendingSender{
 		client:       c,
 		target:       target,
@@ -84,7 +84,7 @@ func (p *PendingSender) recallPending() {
 }
 
 // SendRichCard updates pending card in place if possible, otherwise recalls and sends new
-func (p *PendingSender) SendRichCard(card *client.CardBuilder) (string, error) {
+func (p *PendingSender) SendRichCard(card *contract.CardBuilder) (string, error) {
 	if p.pendingMsgId != "" {
 		// Try to update the card in place
 		if err := p.client.UpdateRichCard(p.pendingMsgId, card); err != nil {
@@ -100,7 +100,7 @@ func (p *PendingSender) SendRichCard(card *client.CardBuilder) (string, error) {
 	return p.sendNewCard(card)
 }
 
-func (p *PendingSender) sendNewCard(card *client.CardBuilder) (string, error) {
+func (p *PendingSender) sendNewCard(card *contract.CardBuilder) (string, error) {
 	if p.replyToMsgId != "" {
 		return p.client.ReplyRichCard(p.replyToMsgId, p.target, card)
 	}
@@ -109,7 +109,7 @@ func (p *PendingSender) sendNewCard(card *client.CardBuilder) (string, error) {
 
 // SendMarkdown is a convenience method for sending a simple markdown message
 func (p *PendingSender) SendMarkdown(markdown string) (string, error) {
-	return p.SendRichCard(client.NewCardBuilder().AddMarkdown(markdown))
+	return p.SendRichCard(contract.NewCardBuilder().AddMarkdown(markdown))
 }
 
 // UploadImage uploads an image and returns the image key
@@ -119,9 +119,9 @@ func (p *PendingSender) UploadImage(base64Content string) (string, error) {
 
 // SendPendingMessage sends a "loading" card message and returns a PendingSender
 // that will automatically update the card when SendRichCard is called
-func (m *MiddlewareContext) SendPendingMessage(msg client.SendTarget) *PendingSender {
+func (m *MiddlewareContext) SendPendingMessage(msg contract.SendTarget) *PendingSender {
 	// Send a loading card (supports in-place update)
-	loadingCard := client.NewCardBuilder().AddMarkdown("少女祈祷中...")
+	loadingCard := contract.NewCardBuilder().AddMarkdown("少女祈祷中...")
 	id, err := m.client.SendRichCard(msg, loadingCard)
 	if err != nil {
 		logger.Warn("failed to send loading card", slog.Any("error", err))
@@ -132,8 +132,8 @@ func (m *MiddlewareContext) SendPendingMessage(msg client.SendTarget) *PendingSe
 
 // SendPendingReply sends a "loading" card as a reply to the trigger message
 // and returns a PendingSender that will update the card in place
-func (m *MiddlewareContext) SendPendingReply(msg client.GenericMessage) *PendingSender {
-	loadingCard := client.NewCardBuilder().AddMarkdown("少女祈祷中...")
+func (m *MiddlewareContext) SendPendingReply(msg contract.GenericMessage) *PendingSender {
+	loadingCard := contract.NewCardBuilder().AddMarkdown("少女祈祷中...")
 	id, err := m.client.ReplyRichCard(msg.GetId(), msg, loadingCard)
 	if err != nil {
 		logger.Warn("failed to send loading reply", slog.Any("error", err))
@@ -146,7 +146,7 @@ func (mctx *MiddlewareContext) Close() {
 	mctx.cron.Stop()
 }
 
-func (m *MiddlewareContext) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (m *MiddlewareContext) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	return false
 }
 
@@ -159,13 +159,13 @@ func (m *MiddlewareContext) Stop() error {
 }
 
 // SendText sends a simple text message
-func (m *MiddlewareContext) SendText(msg client.SendTarget, text string) (string, error) {
-	return client.SendText(m.client, msg, text)
+func (m *MiddlewareContext) SendText(msg contract.SendTarget, text string) (string, error) {
+	return contract.SendText(m.client, msg, text)
 }
 
 // SendImage sends a simple image message
-func (m *MiddlewareContext) SendImage(msg client.SendTarget, base64Content string) (string, error) {
-	return client.SendImage(m.client, msg, base64Content)
+func (m *MiddlewareContext) SendImage(msg contract.SendTarget, base64Content string) (string, error) {
+	return contract.SendImage(m.client, msg, base64Content)
 }
 
 type RootMiddleware struct {
