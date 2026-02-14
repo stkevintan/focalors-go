@@ -51,7 +51,7 @@ func (a *AccessMiddleware) OnMessage(ctx context.Context, msg contract.GenericMe
 		}
 		nickname := target
 		// if !strings.HasPrefix(target, "wxid_") && !strings.HasSuffix(target, "@chatroom") {
-		// 	a.contract.SendText(msg, fmt.Sprintf("未知目标用户: %s", target))
+		// 	a.client.SendText(msg, fmt.Sprintf("未知目标用户: %s", target))
 		// 	return true
 		// }
 

@@ -19,7 +19,7 @@ func NewAdminMiddleware(base *MiddlewareContext) Middleware {
 }
 
 func (a *adminMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
-	if !a.access.IsAdmin(msg.GetTarget()) {
+	if !a.access.IsAdmin(msg.GetUserId()) {
 		return false
 	}
 	if fs := contract.ToFlagSet(msg, "admin"); fs != nil {

@@ -74,7 +74,7 @@ type GenericMessage interface {
 	GetMentionedUsers() []UserInfo
 }
 
-func IsMMentionedMe(msg GenericMessage, selfUserId string) bool {
+func IsMentionedMe(msg GenericMessage, selfUserId string) bool {
 	if msg.IsGroup() {
 		for _, user := range msg.GetMentionedUsers() {
 			if user.UserId == selfUserId {
