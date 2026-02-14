@@ -44,10 +44,20 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 }
 
 func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
-	logger.Info("OAI check", slog.Bool("isText", msg.IsText()), slog.String("text", msg.GetText()), slog.Bool("isMentioned", msg.IsMentioned()))
+	logger.Info("OAI check", slog.Bool("isText", msg.IsText()), slog.String("text", msg.GetText()), slog.Bool("isMentioned", contract.IsMentioned(msg, o.client.GetSelfUserId())))
 
-	if !msg.IsText() || msg.GetText() == "" || !msg.IsMentioned() {
+	if !msg.IsText() || msg.GetText() == "" {
 		return false
+	}
+	selfId := o.client.GetSelfUserId()
+	referMessage, ok := msg.GetReferMessage()
+	// In group chats, only respond if mentioned or if it's a reply to the bot
+	if msg.IsGroup() {
+		isMentioned := contract.IsMentioned(msg, selfId)
+		isReplyToSelf := ok && referMessage.GetUserId() == selfId
+		if !isMentioned && !isReplyToSelf {
+			return false
+		}
 	}
 
 	if ok, _ := o.access.HasAccess(msg.GetTarget(), service.GPTAccess); !ok {
@@ -64,13 +74,21 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg contract.GenericMe
 	messages := []openai.ChatCompletionMessageParamUnion{
 		openai.UserMessage(content),
 	}
-	if referMessage, ok := msg.GetReferMessage(); ok {
-		if referMessage != nil && referMessage.GetText() != "" {
-			if referMessage.GetUserId() == o.client.GetSelfUserId() {
-				messages = append(messages, openai.AssistantMessage(referMessage.GetText()))
+
+	// Walk the reply chain to build conversation thread (up to 10 messages)
+	for i := 0; referMessage != nil && i < 10; i++ {
+		if text := referMessage.GetText(); text != "" {
+			logger.Debug("ReferredText", slog.String("text", text), slog.String("userid", referMessage.GetUserId()))
+			if referMessage.GetUserId() == selfId {
+				messages = append(messages, openai.AssistantMessage(text))
 			} else {
-				messages = append(messages, openai.UserMessage(referMessage.GetText()))
+				messages = append(messages, openai.UserMessage(text))
 			}
+		}
+		referMessage, ok = referMessage.GetReferMessage()
+		logger.Debug("Walking reply chain", slog.Int("depth", i), slog.Bool("hasRefer", ok))
+		if !ok {
+			break
 		}
 	}
 	slices.Reverse(messages)
