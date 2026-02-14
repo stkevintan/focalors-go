@@ -4,13 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/contract"
 	"focalors-go/db"
-	"focalors-go/lark"
 	"focalors-go/middlewares"
+	"focalors-go/provider/lark"
+	"focalors-go/provider/wechat"
 	"focalors-go/slogger"
-	"focalors-go/wechat"
 	"log"
 	"log/slog"
 	"os"
@@ -101,7 +101,7 @@ func main() {
 		middlewares.NewAccessMiddleware,
 		middlewares.NewAvatarMiddleware,
 		middlewares.NewJiadanMiddleware,
-		middlewares.NewBridgeMiddleware,
+		middlewares.NewYunzaiMiddleware,
 		middlewares.NewOpenAIMiddleware,
 	)
 
@@ -120,7 +120,7 @@ func main() {
 	cancel()
 }
 
-func newGenericClient(cfg *config.Config, redis *db.Redis) (client.GenericClient, error) {
+func newGenericClient(cfg *config.Config, redis *db.Redis) (contract.GenericClient, error) {
 	switch cfg.App.Platform {
 	case "lark":
 		return lark.NewLarkClient(cfg, redis)

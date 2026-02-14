@@ -6,8 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"focalors-go/client"
 	"focalors-go/config"
+	"focalors-go/contract"
 	"focalors-go/db"
 	"focalors-go/slogger"
 	"io"
@@ -37,12 +37,12 @@ const (
 type LarkClient struct {
 	sdk      *larkSDK.Client
 	cfg      *config.LarkConfig
-	handlers []func(ctx context.Context, msg client.GenericMessage) bool
+	handlers []func(ctx context.Context, msg contract.GenericMessage) bool
 	redis    *db.Redis
 	appCtx   context.Context // application context for graceful shutdown
 }
 
-var _ client.GenericClient = (*LarkClient)(nil)
+var _ contract.GenericClient = (*LarkClient)(nil)
 
 func NewLarkClient(cfg *config.Config, redis *db.Redis) (*LarkClient, error) {
 	if cfg.Lark.AppID == "" || cfg.Lark.AppSecret == "" {
@@ -155,7 +155,7 @@ func (l *LarkClient) Start(ctx context.Context) error {
 	return cli.Start(ctx)
 }
 
-func (l *LarkClient) AddMessageHandler(handler func(ctx context.Context, msg client.GenericMessage) bool) {
+func (l *LarkClient) AddMessageHandler(handler func(ctx context.Context, msg contract.GenericMessage) bool) {
 	l.handlers = append(l.handlers, handler)
 }
 
@@ -188,17 +188,17 @@ func (l *LarkClient) UploadImage(base64Content string) (string, error) {
 }
 
 // buildRichCardContent creates a Lark interactive card from CardBuilder
-func (l *LarkClient) buildRichCardContent(card *client.CardBuilder) string {
+func (l *LarkClient) buildRichCardContent(card *contract.CardBuilder) string {
 	elements := []map[string]interface{}{}
 
 	for _, elem := range card.Elements {
 		switch elem.Type {
-		case client.CardElementMarkdown:
+		case contract.CardElementMarkdown:
 			elements = append(elements, map[string]interface{}{
 				"tag":     "markdown",
 				"content": elem.Content,
 			})
-		case client.CardElementImage:
+		case contract.CardElementImage:
 			altText := elem.AltText
 			if altText == "" {
 				altText = "image"
@@ -212,11 +212,11 @@ func (l *LarkClient) buildRichCardContent(card *client.CardBuilder) string {
 					"content": altText,
 				},
 			})
-		case client.CardElementDivider:
+		case contract.CardElementDivider:
 			elements = append(elements, map[string]interface{}{
 				"tag": "hr",
 			})
-		case client.CardElementButtons:
+		case contract.CardElementButtons:
 			// Render buttons as markdown links: [`text`](data)
 			var links []string
 			for _, row := range elem.Buttons {
@@ -255,11 +255,11 @@ func (l *LarkClient) buildRichCardContent(card *client.CardBuilder) string {
 	return string(content)
 }
 
-func (l *LarkClient) SendRichCard(target client.SendTarget, card *client.CardBuilder) (string, error) {
+func (l *LarkClient) SendRichCard(target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	return l.sendRichCardInternal(target, card)
 }
 
-func (l *LarkClient) ReplyRichCard(replyToMsgId string, target client.SendTarget, card *client.CardBuilder) (string, error) {
+func (l *LarkClient) ReplyRichCard(replyToMsgId string, target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	if replyToMsgId == "" {
 		return l.SendRichCard(target, card)
 	}
@@ -288,7 +288,7 @@ func (l *LarkClient) ReplyRichCard(replyToMsgId string, target client.SendTarget
 	return "", nil
 }
 
-func (l *LarkClient) sendRichCardInternal(target client.SendTarget, card *client.CardBuilder) (string, error) {
+func (l *LarkClient) sendRichCardInternal(target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	content := l.buildRichCardContent(card)
 
 	req := larkim.NewCreateMessageReqBuilder().
@@ -314,7 +314,7 @@ func (l *LarkClient) sendRichCardInternal(target client.SendTarget, card *client
 	return "", nil
 }
 
-func (l *LarkClient) UpdateRichCard(messageId string, card *client.CardBuilder) error {
+func (l *LarkClient) UpdateRichCard(messageId string, card *contract.CardBuilder) error {
 	if messageId == "" {
 		return nil
 	}
@@ -361,7 +361,7 @@ func (l *LarkClient) uploadBase64Image(b64 string) (string, error) {
 	return *resp.Data.ImageKey, nil
 }
 
-func (l *LarkClient) GetContactDetail(userId ...string) ([]client.Contact, error) {
+func (l *LarkClient) GetContactDetail(userId ...string) ([]contract.Contact, error) {
 	if len(userId) == 0 {
 		return nil, nil
 	}
@@ -383,7 +383,7 @@ func (l *LarkClient) GetContactDetail(userId ...string) ([]client.Contact, error
 		return nil, fmt.Errorf("batch get user failed: code=%d, msg=%s", resp.Code, resp.Msg)
 	}
 
-	var contacts []client.Contact
+	var contacts []contract.Contact
 	if resp.Data != nil {
 		for _, user := range resp.Data.Items {
 			avatarUrl := ""
@@ -402,7 +402,7 @@ func (l *LarkClient) GetContactDetail(userId ...string) ([]client.Contact, error
 	return contacts, nil
 }
 
-// LarkContact implements client.Contact
+// LarkContact implements contract.Contact
 type LarkContact struct {
 	openId    string
 	name      string

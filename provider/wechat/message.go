@@ -2,7 +2,7 @@ package wechat
 
 import (
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -127,7 +127,7 @@ type MessageUnit struct {
 	Content []string
 }
 
-func NewMessageUnit(target client.SendTarget, content ...string) *MessageUnit {
+func NewMessageUnit(target contract.SendTarget, content ...string) *MessageUnit {
 	return &MessageUnit{
 		Target:  target.GetTarget(),
 		Content: content,
@@ -183,33 +183,33 @@ func (w *WechatClient) UploadImage(base64Content string) (string, error) {
 	return base64Content, nil
 }
 
-func (w *WechatClient) SendRichCard(target client.SendTarget, card *client.CardBuilder) (string, error) {
+func (w *WechatClient) SendRichCard(target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	// WeChat doesn't support rich cards, send elements as separate messages
 	var lastMsgId string
 	for _, elem := range card.Elements {
 		switch elem.Type {
-		case client.CardElementMarkdown:
+		case contract.CardElementMarkdown:
 			w.SendTextBatch(NewMessageUnit(target, elem.Content))
-		case client.CardElementImage:
+		case contract.CardElementImage:
 			w.sendImageDirect(target, elem.Content)
-		case client.CardElementDivider:
+		case contract.CardElementDivider:
 			// Skip dividers for WeChat
 		}
 	}
 	return lastMsgId, nil
 }
 
-func (w *WechatClient) ReplyRichCard(replyToMsgId string, target client.SendTarget, card *client.CardBuilder) (string, error) {
+func (w *WechatClient) ReplyRichCard(replyToMsgId string, target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	// WeChat doesn't support reply-to, just send normally
 	return w.SendRichCard(target, card)
 }
 
-func (w *WechatClient) UpdateRichCard(messageId string, card *client.CardBuilder) error {
+func (w *WechatClient) UpdateRichCard(messageId string, card *contract.CardBuilder) error {
 	// WeChat doesn't support card update
 	return fmt.Errorf("not supported")
 }
 
-func (w *WechatClient) sendImageDirect(target client.SendTarget, content string) error {
+func (w *WechatClient) sendImageDirect(target contract.SendTarget, content string) error {
 	c := strings.TrimPrefix(content, "base64://")
 	c = strings.Trim(c, " \n")
 	if c == "" {
@@ -336,10 +336,13 @@ type WechatMessage struct {
 	FromGroupId string      `json:"from_group_id"`
 	ChatType    ChatType    `json:"chat_type"`
 	Content     string      `json:"content"`
+	MsgSource   string      `json:"msg_source"`
 	// IsSelfMsg   bool        `json:"is_self_msg"`
 	IsHistory  bool   `json:"is_history"`
 	CreateTime int64  `json:"create_time"`
 	Text       string `json:"text"`
+	// cache keys, no need to serialize
+	mentionedUsers []contract.UserInfo `json:"-"`
 	// cache keys, no need to serialize
 	xml *xmlquery.Node `json:"-"`
 }
@@ -444,6 +447,15 @@ func (w *WechatMessage) IsMentioned() bool {
 	return w.ChatType == ChatTypePrivate || strings.Contains(w.Text, "@"+self.UserInfo.NickName.Str)
 }
 
+func (w *WechatMessage) GetMentionedUsers() []contract.UserInfo {
+	if len(w.mentionedUsers) == 0 {
+		return nil
+	}
+	mentionedUsers := make([]contract.UserInfo, len(w.mentionedUsers))
+	copy(mentionedUsers, w.mentionedUsers)
+	return mentionedUsers
+}
+
 func (msg *WechatWebHookMessage) Parse() *WechatMessage {
 	// map WechatWebHookMessage to WechatMessage
 	message := &WechatMessage{
@@ -506,8 +518,10 @@ func (msg *WechatSyncMessage) Parse() *WechatMessage {
 		FromUserId: msg.FromUserId.Str,
 		ToUserId:   msg.ToUserId.Str,
 		Content:    msg.Content.Str,
+		MsgSource:  msg.MsgSource,
 		// IsSelfMsg:  selfId == msg.FromUserId.Str,
 	}
+	message.mentionedUsers = parseMentionedUsers(message.MsgSource)
 
 	if strings.HasSuffix(message.FromUserId, "@chatroom") {
 		message.ChatType = ChatTypeGroup
@@ -547,6 +561,34 @@ func (msg *WechatSyncMessage) Parse() *WechatMessage {
 	return message
 }
 
+func parseMentionedUsers(msgSource string) []contract.UserInfo {
+	msgSource = strings.TrimSpace(msgSource)
+	if msgSource == "" {
+		return nil
+	}
+	msgSourceXML, err := xmlquery.Parse(strings.NewReader(msgSource))
+	if err != nil {
+		return nil
+	}
+	atUserList := strings.TrimSpace(InnerText(msgSourceXML, "//atuserlist"))
+	if atUserList == "" {
+		return nil
+	}
+	mentionedUserIds := strings.Split(atUserList, ",")
+	mentionedUsers := make([]contract.UserInfo, 0, len(mentionedUserIds))
+	for _, mentionedUserId := range mentionedUserIds {
+		mentionedUserId = strings.TrimSpace(mentionedUserId)
+		if mentionedUserId == "" {
+			continue
+		}
+		mentionedUsers = append(mentionedUsers, contract.UserInfo{UserId: mentionedUserId})
+	}
+	if len(mentionedUsers) == 0 {
+		return nil
+	}
+	return mentionedUsers
+}
+
 func deserializeToXMLStr(content string) string {
 	// // Handle other Unicode escapes
 	for strings.Contains(content, "\\u") {
@@ -565,7 +607,8 @@ func deserializeToXMLStr(content string) string {
 
 	return content
 }
-func (w *WechatMessage) GetReferMessage() (referMsg client.GenericMessage, ok bool) {
+
+func (w *WechatMessage) GetReferMessage() (referMsg contract.GenericMessage, ok bool) {
 	if w.MsgType != ReferMessage || w.xml == nil {
 		return nil, false
 	}

@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"focalors-go/db"
 	"focalors-go/service"
 	"focalors-go/tooling"
@@ -43,7 +43,7 @@ func NewOpenAIMiddleware(base *MiddlewareContext) Middleware {
 	}
 }
 
-func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	logger.Info("OAI check", slog.Bool("isText", msg.IsText()), slog.String("text", msg.GetText()), slog.Bool("isMentioned", msg.IsMentioned()))
 
 	if !msg.IsText() || msg.GetText() == "" || !msg.IsMentioned() {
@@ -84,7 +84,7 @@ func (o *OpenAIMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	}
 
 	// Build card with response and any content from tools
-	card := client.NewCardBuilder()
+	card := contract.NewCardBuilder()
 	// special handling for jiandan tool to avoid duplicate text since the main response may already contain post info, and the tool content is mainly for images
 	if !slices.ContainsFunc(contents, func(c tooling.Content) bool { return c.ToolName == "jiandan_top" }) {
 		card.AddMarkdown(response)

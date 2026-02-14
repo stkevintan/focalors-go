@@ -2,7 +2,7 @@ package middlewares
 
 import (
 	"context"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"log/slog"
 )
 
@@ -12,7 +12,7 @@ func NewLogMsgMiddleware(_context *MiddlewareContext) Middleware {
 	return &logMsgMiddleware{}
 }
 
-func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (l *logMsgMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	logger.Info("Received Wechat message",
 		slog.String("MsgId", msg.GetId()),
 		slog.String("FromUserId", msg.GetUserId()),

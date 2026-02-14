@@ -1,7 +1,7 @@
 package wechat
 
 import (
-	"focalors-go/client"
+	"focalors-go/contract"
 	"strings"
 )
 
@@ -105,12 +105,12 @@ func (c *UserContactDetailModel) Username() string {
 	return c.UserName.Str
 }
 
-func (w *WechatClient) GetContactDetail(id ...string) ([]client.Contact, error) {
+func (w *WechatClient) GetContactDetail(id ...string) ([]contract.Contact, error) {
 	details, err := w.GetGeneralContactDetails(id...)
 	if err != nil {
 		return nil, err
 	}
-	contacts := make([]client.Contact, 0, len(details.Users)+len(details.Rooms))
+	contacts := make([]contract.Contact, 0, len(details.Users)+len(details.Rooms))
 	for i := range details.Users {
 		contacts = append(contacts, &details.Users[i])
 	}

@@ -3,7 +3,7 @@ package middlewares
 import (
 	"context"
 	"fmt"
-	"focalors-go/client"
+	"focalors-go/contract"
 	"log/slog"
 	"strings"
 )
@@ -18,11 +18,11 @@ func NewAdminMiddleware(base *MiddlewareContext) Middleware {
 	}
 }
 
-func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
-	if !a.access.IsAdmin(msg.GetTarget()) {
+func (a *adminMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
+	if !a.access.IsAdmin(msg.GetUserId()) {
 		return false
 	}
-	if fs := client.ToFlagSet(msg, "admin"); fs != nil {
+	if fs := contract.ToFlagSet(msg, "admin"); fs != nil {
 		var topic string
 		fs.StringVar(&topic, "s", "", "topic: cron, access")
 		if help := fs.Parse(); help != "" {
@@ -41,7 +41,7 @@ func (a *adminMiddleware) OnMessage(ctx context.Context, msg client.GenericMessa
 	}
 	return false
 }
-func (a *adminMiddleware) onAdminMessage(msg client.GenericMessage) bool {
+func (a *adminMiddleware) onAdminMessage(msg contract.GenericMessage) bool {
 	targetAndPerms, err := a.access.ListAll()
 	if err != nil {
 		logger.Warn("Failed to list target and perm", slog.Any("error", err))
@@ -82,7 +82,7 @@ func (a *adminMiddleware) onAdminMessage(msg client.GenericMessage) bool {
 	return true
 }
 
-func (a *adminMiddleware) onCronTask(msg client.GenericMessage) bool {
+func (a *adminMiddleware) onCronTask(msg contract.GenericMessage) bool {
 	tasks := a.cron.TaskEntries()
 	if len(tasks) == 0 {
 		a.SendText(msg, "没有定时任务")

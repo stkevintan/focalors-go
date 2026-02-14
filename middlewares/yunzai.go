@@ -2,28 +2,28 @@ package middlewares
 
 import (
 	"context"
-	"focalors-go/client"
-	"focalors-go/yunzai"
+	"focalors-go/contract"
+	"focalors-go/service/yunzai"
 	"log/slog"
 	"regexp"
 	"strings"
 )
 
-type bridgeMiddleware struct {
+type yunzaiMiddleware struct {
 	*MiddlewareContext
 	y *yunzai.YunzaiClient
 }
 
-func NewBridgeMiddleware(base *MiddlewareContext) Middleware {
+func NewYunzaiMiddleware(base *MiddlewareContext) Middleware {
 	// create new yunzai client
 	y := yunzai.NewYunzai(base.cfg)
-	return &bridgeMiddleware{
+	return &yunzaiMiddleware{
 		MiddlewareContext: base,
 		y:                 y,
 	}
 }
 
-func (b *bridgeMiddleware) syncAvatars() {
+func (b *yunzaiMiddleware) syncAvatars() {
 	storedAvatars, err := b.avatarStore.List()
 	if err != nil {
 		logger.Warn("Failed to load avatars from store", slog.Any("error", err))
@@ -35,7 +35,7 @@ func (b *bridgeMiddleware) syncAvatars() {
 	}
 }
 
-func (b *bridgeMiddleware) Start() error {
+func (b *yunzaiMiddleware) Start() error {
 	b.y.AddMessageHandler(b.onYunzaiMessage)
 	b.y.OnConnect(b.syncAvatars)
 	go b.y.Start(b.ctx)
@@ -46,7 +46,7 @@ func (b *bridgeMiddleware) Start() error {
 	return nil
 }
 
-func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (b *yunzaiMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
 	if !msg.IsText() || !regexp.MustCompile(`^[#*%]`).MatchString(msg.GetText()) {
 		return false
 	}
@@ -80,7 +80,7 @@ func (b *bridgeMiddleware) OnMessage(ctx context.Context, msg client.GenericMess
 	return true
 }
 
-func (b *bridgeMiddleware) logYunzaiMessage(msg *yunzai.Response) bool {
+func (b *yunzaiMiddleware) logYunzaiMessage(msg *yunzai.Response) bool {
 	logger.Info("Received Yunzai message",
 		slog.String("BotId", msg.BotSelfId),
 		slog.String("TargetId", msg.TargetId),
@@ -100,13 +100,13 @@ func (b *bridgeMiddleware) logYunzaiMessage(msg *yunzai.Response) bool {
 	return false
 }
 
-func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Response) bool {
+func (b *yunzaiMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Response) bool {
 	b.logYunzaiMessage(msg)
 	// its rare to has extra message push from yunzai
 	queue := make([]yunzai.MessageContent, len(msg.Content))
 	copy(queue, msg.Content)
 	front := 0
-	card := client.NewCardBuilder()
+	card := contract.NewCardBuilder()
 	for front < len(queue) {
 		content := queue[front]
 		front++
@@ -163,7 +163,7 @@ func (b *bridgeMiddleware) onYunzaiMessage(ctx context.Context, msg *yunzai.Resp
 	return false
 }
 
-// func (b *bridgeMiddleware) updateAvatarCache(msg client.GenericMessage) {
+// func (b *yunzaiMiddleware) updateAvatarCache(msg contract.GenericMessage) {
 // 	var triggers = regexp.MustCompile(`^[#*%]更新(面板|头像)`)
 // 	if msg.IsText() && triggers.MatchString(msg.GetText()) {
 // 		contacts, err := b.client.GetContactDetail(msg.GetUserId())

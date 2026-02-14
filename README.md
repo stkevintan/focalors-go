@@ -164,16 +164,17 @@ All configuration is in a single `config.toml` file. The application searches fo
 ```
 main.go              # Entry point, wires everything together
 config/              # Configuration loading (viper/toml)
-client/              # GenericClient & GenericMessage interfaces
-wechat/              # WeChat platform implementation
-lark/                # Lark platform implementation
+contract/            # GenericClient & GenericMessage interfaces
+protocol/            # WebSocket client infrastructure
+provider/lark/       # Lark platform implementation
+provider/wechat/     # WeChat platform implementation
 db/                  # Redis wrapper and data stores (AvatarStore, JiandanStore)
 middlewares/         # Message processing pipeline
 tooling/             # OpenAI function-calling tools
 service/             # Business logic (weather, jiandan, access)
+service/yunzai/      # Yunzai-Bot WebSocket client
 scheduler/           # Cron task runner
 slogger/             # Structured logger factory
-yunzai/              # Yunzai-Bot WebSocket client
 ```
 
 ### Adding a new middleware
@@ -187,7 +188,7 @@ package middlewares
 
 import (
     "context"
-    "focalors-go/client"
+    "focalors-go/contract"
 )
 
 type helloMiddleware struct {
@@ -198,7 +199,7 @@ func NewHelloMiddleware(base *MiddlewareContext) Middleware {
     return &helloMiddleware{MiddlewareContext: base}
 }
 
-func (h *helloMiddleware) OnMessage(ctx context.Context, msg client.GenericMessage) bool {
+func (h *helloMiddleware) OnMessage(ctx context.Context, msg contract.GenericMessage) bool {
     if msg.IsText() && msg.GetText() == "hello" {
         h.SendText(msg, "Hello! 👋")
         return true // handled, stop propagation
@@ -220,7 +221,7 @@ m.AddMiddlewares(
     middlewares.NewHelloMiddleware,   // <-- add here
     middlewares.NewAvatarMiddleware,
     middlewares.NewJiadanMiddleware,
-    middlewares.NewBridgeMiddleware,
+    middlewares.NewYunzaiMiddleware,
     middlewares.NewOpenAIMiddleware,
 )
 ```
