@@ -69,32 +69,17 @@ type GenericMessage interface {
 	IsImage() bool
 	// GetReferMessage returns the message being replied to, if any
 	GetReferMessage() (referMsg GenericMessage, ok bool)
-	IsMentioned() bool
 	// get the list of mentioned users in the message, if any
 	GetMentionedUsers() []UserInfo
 }
 
-func IsMentionedMe(msg GenericMessage, selfUserId string) bool {
-	if msg.IsGroup() {
-		for _, user := range msg.GetMentionedUsers() {
-			if user.UserId == selfUserId {
-				return true
-			}
+func IsMentioned(msg GenericMessage, userId string) bool {
+	for _, user := range msg.GetMentionedUsers() {
+		if user.UserId == userId {
+			return true
 		}
-		return false
 	}
-	return true
-}
-
-func IsReplyToMe(msg GenericMessage, selfUserId string) bool {
-	if msg.IsGroup() {
-		referMsg, ok := msg.GetReferMessage()
-		if !ok {
-			return false
-		}
-		return referMsg.GetUserId() == selfUserId
-	}
-	return true
+	return false
 }
 
 func ToFlagSet(m GenericMessage, name string) *MessageFlagSet {

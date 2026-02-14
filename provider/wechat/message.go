@@ -443,10 +443,6 @@ func (w *WechatMessage) IsCommand() bool {
 	return w.IsText() && strings.HasPrefix(w.Text, "#")
 }
 
-func (w *WechatMessage) IsMentioned() bool {
-	return w.ChatType == ChatTypePrivate || strings.Contains(w.Text, "@"+self.UserInfo.NickName.Str)
-}
-
 func (w *WechatMessage) GetMentionedUsers() []contract.UserInfo {
 	if len(w.mentionedUsers) == 0 {
 		return nil

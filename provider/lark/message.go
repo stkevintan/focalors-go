@@ -96,16 +96,7 @@ func (l *LarkClient) parseMessage(event *larkim.P2MessageReceiveV1) (*LarkMessag
 		}
 	}
 
-	// Parse text from content JSON for text messages
-	if lm.msgType == "text" && lm.content != "" {
-		var textContent struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal([]byte(lm.content), &textContent); err == nil {
-			// Strip @mentions from text (e.g., "@_user_1 hello" -> "hello")
-			lm.text = strings.TrimSpace(mentionRegex.ReplaceAllString(textContent.Text, ""))
-		}
-	}
+	lm.text = l.extractText(lm.msgType, lm.content)
 
 	return lm, nil
 }
@@ -196,6 +187,11 @@ func (l *LarkClient) getMessageByID(messageId string) (*LarkMessage, error) {
 	if item.Sender != nil {
 		lm.senderId = derefStr(item.Sender.Id)
 		lm.senderType = derefStr(item.Sender.SenderType)
+		// Message.Get API returns app_id (cli_xxx) for bot-sent messages,
+		// normalize to open_id so it matches GetSelfUserId()
+		if lm.senderType == "app" && botOpenId != "" {
+			lm.senderId = botOpenId
+		}
 	}
 	if item.Body != nil {
 		lm.content = derefStr(item.Body.Content)
@@ -222,31 +218,86 @@ func (l *LarkClient) getMessageByID(messageId string) (*LarkMessage, error) {
 		}
 	}
 
-	if lm.msgType == "text" && lm.content != "" {
-		var textContent struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal([]byte(lm.content), &textContent); err == nil {
-			lm.text = strings.TrimSpace(mentionRegex.ReplaceAllString(textContent.Text, ""))
+	// Resolve parent message to enable reply chain walking
+	var parentId string
+	if item.ParentId != nil && *item.ParentId != "" {
+		parentId = *item.ParentId
+	} else if item.RootId != nil && *item.RootId != "" {
+		parentId = *item.RootId
+	}
+	if parentId != "" {
+		referMsg, err := l.getMessageByID(parentId)
+		if err != nil {
+			logger.Warn("failed to fetch parent message in chain", slog.String("message_id", parentId), slog.Any("error", err))
+		} else if referMsg != nil {
+			lm.referMessage = referMsg
 		}
 	}
+
+	lm.text = l.extractText(lm.msgType, lm.content)
 
 	return lm, nil
 }
 
-func (m *LarkMessage) IsMentioned() bool {
-	// For private chats, always return true
-	if m.chatType != chatTypeGroup {
-		return true
+// extractText parses the text from message content based on message type.
+func (l *LarkClient) extractText(msgType, content string) string {
+	if content == "" {
+		return ""
 	}
-
-	// For group chats, check if bot is mentioned
-	for _, mentionedId := range m.mentionedUserIds {
-		if mentionedId == botOpenId {
-			return true
+	switch msgType {
+	case "text":
+		var textContent struct {
+			Text string `json:"text"`
 		}
+		if err := json.Unmarshal([]byte(content), &textContent); err == nil {
+			return strings.TrimSpace(mentionRegex.ReplaceAllString(textContent.Text, ""))
+		}
+	case "interactive":
+		// Body.Content from the API may be JSON-escaped (string within string), try unescaping first
+		raw := content
+		if len(raw) > 0 && raw[0] == '"' {
+			var unescaped string
+			if err := json.Unmarshal([]byte(raw), &unescaped); err == nil {
+				raw = unescaped
+			}
+		}
+		// Lark API returns card elements as 2D array with "tag":"text"/"text":"..."
+		// while sent cards use flat array with "tag":"markdown"/"content":"..."
+		type cardElement struct {
+			Tag     string `json:"tag"`
+			Text    string `json:"text"`
+			Content string `json:"content"`
+		}
+		var card struct {
+			Elements json.RawMessage `json:"elements"`
+		}
+		if err := json.Unmarshal([]byte(raw), &card); err != nil {
+			logger.Debug("failed to parse interactive card", slog.String("content_preview", raw[:min(len(raw), 200)]), slog.Any("error", err))
+			return ""
+		}
+		var elems []cardElement
+		// Try 2D array first (API response format), then flat array (sent format)
+		var nested [][]cardElement
+		if err := json.Unmarshal(card.Elements, &nested); err == nil {
+			for _, row := range nested {
+				elems = append(elems, row...)
+			}
+		} else {
+			json.Unmarshal(card.Elements, &elems)
+		}
+		var parts []string
+		for _, elem := range elems {
+			text := elem.Content
+			if text == "" {
+				text = elem.Text
+			}
+			if text != "" && (elem.Tag == "markdown" || elem.Tag == "text" || elem.Tag == "div") {
+				parts = append(parts, text)
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n"))
 	}
-	return false
+	return ""
 }
 
 func derefStr(s *string) string {
