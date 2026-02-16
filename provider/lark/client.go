@@ -288,13 +288,23 @@ func (l *LarkClient) ReplyRichCard(replyToMsgId string, target contract.SendTarg
 	return "", nil
 }
 
+// detectReceiveIdType returns the appropriate ReceiveIdType based on the ID prefix.
+// Lark uses "ou_" for open_id (users) and "oc_" for chat_id (conversations).
+func detectReceiveIdType(id string) string {
+	if strings.HasPrefix(id, "ou_") {
+		return larkim.ReceiveIdTypeOpenId
+	}
+	return larkim.ReceiveIdTypeChatId
+}
+
 func (l *LarkClient) sendRichCardInternal(target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	content := l.buildRichCardContent(card)
+	receiveId := target.GetTarget()
 
 	req := larkim.NewCreateMessageReqBuilder().
-		ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		ReceiveIdType(detectReceiveIdType(receiveId)).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
-			ReceiveId(target.GetTarget()).
+			ReceiveId(receiveId).
 			MsgType(larkim.MsgTypeInteractive).
 			Content(content).
 			Build()).
