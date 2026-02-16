@@ -301,7 +301,8 @@ func detectReceiveIdType(id string) string {
 	if strings.HasPrefix(id, "oc_") {
 		return larkim.ReceiveIdTypeChatId
 	}
-	if strings.Contains(id, "@") {
+	// Check for email: must contain @ with text before and after
+	if idx := strings.Index(id, "@"); idx > 0 && idx < len(id)-1 {
 		return larkim.ReceiveIdTypeEmail
 	}
 	return larkim.ReceiveIdTypeChatId
