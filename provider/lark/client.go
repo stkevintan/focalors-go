@@ -288,13 +288,31 @@ func (l *LarkClient) ReplyRichCard(replyToMsgId string, target contract.SendTarg
 	return "", nil
 }
 
+// detectReceiveIdType returns the appropriate ReceiveIdType based on the ID format.
+// Lark uses different prefixes and patterns for different ID types:
+//   - "ou_" prefix indicates open_id (user's identity in an app)
+//   - "oc_" prefix indicates chat_id (group chat identifier)
+//   - Contains "@" indicates email address
+//   - Defaults to chat_id for unrecognized formats
+func detectReceiveIdType(id string) string {
+	if strings.HasPrefix(id, "ou_") {
+		return larkim.ReceiveIdTypeOpenId
+	}
+	// Check for email: must contain @ with text before and after
+	if idx := strings.Index(id, "@"); idx > 0 && idx < len(id)-1 {
+		return larkim.ReceiveIdTypeEmail
+	}
+	return larkim.ReceiveIdTypeChatId
+}
+
 func (l *LarkClient) sendRichCardInternal(target contract.SendTarget, card *contract.CardBuilder) (string, error) {
 	content := l.buildRichCardContent(card)
+	receiveId := target.GetTarget()
 
 	req := larkim.NewCreateMessageReqBuilder().
-		ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		ReceiveIdType(detectReceiveIdType(receiveId)).
 		Body(larkim.NewCreateMessageReqBodyBuilder().
-			ReceiveId(target.GetTarget()).
+			ReceiveId(receiveId).
 			MsgType(larkim.MsgTypeInteractive).
 			Content(content).
 			Build()).
